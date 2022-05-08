@@ -1,8 +1,2 @@
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        let result = 2 + 2;
-        assert_eq!(result, 4);
-    }
-}
+pub const WIDTH: u32 = 64;
+pub const HEIGHT: u32 = 32;
