@@ -1,3 +1,4 @@
+use chip8::Chip8;
 use pixels::{Pixels, SurfaceTexture};
 use winit::{
     dpi::LogicalSize,
@@ -31,6 +32,8 @@ pub fn main() {
         Pixels::new(chip8::WIDTH as u32, chip8::HEIGHT as u32, surface_texture).unwrap()
     };
 
+    let mut chip8 = Chip8::new();
+
     log::trace!("Begin event loop");
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent { event, .. } => match event {
@@ -48,6 +51,18 @@ pub fn main() {
             window.request_redraw();
         }
         Event::RedrawRequested(_) => {
+            for (&set, pixel) in chip8
+                .display()
+                .iter()
+                .zip(pixels.get_frame().chunks_exact_mut(4))
+            {
+                let color = if set {
+                    [0xff, 0xff, 0xff, 0xff]
+                } else {
+                    [0x00, 0x00, 0x00, 0xff]
+                };
+                pixel.copy_from_slice(&color);
+            }
             pixels.render().unwrap();
         }
         _ => {}

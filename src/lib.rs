@@ -19,6 +19,10 @@ impl Chip8 {
         }
     }
 
+    pub fn display(&self) -> &[bool; WIDTH as usize * HEIGHT as usize] {
+        &self.display
+    }
+
     pub fn execute_opcode(&mut self, opcode: u16) {
         // Break into nibbles
         let nibbles = (
