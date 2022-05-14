@@ -19,7 +19,7 @@ pub fn main() {
             .unwrap()
     };
 
-    let pixels = {
+    let mut pixels = {
         let window_size = window.inner_size();
         let surface_texture = SurfaceTexture::new(window_size.width, window_size.height, &window);
         Pixels::new(chip8::WIDTH, chip8::HEIGHT, surface_texture).unwrap()
@@ -27,6 +27,7 @@ pub fn main() {
 
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent { event, .. } => match event {
+            WindowEvent::Resized(size) => pixels.resize_surface(size.width, size.height),
             WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
             _ => {}
         },
