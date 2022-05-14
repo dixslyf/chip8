@@ -61,6 +61,7 @@ impl Chip8 {
             (0xF, _, 0x6, 0x5) => self.op_fx65(x),
             _ => panic!("Unknown opcode {:#06X}", opcode),
         }
+        log::info!("Execute opcode: {:#06X}", opcode);
     }
 
     fn op_0nnn(&mut self, nnn: u16) {}
