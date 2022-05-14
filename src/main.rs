@@ -28,7 +28,7 @@ pub fn main() {
     let mut pixels = {
         let window_size = window.inner_size();
         let surface_texture = SurfaceTexture::new(window_size.width, window_size.height, &window);
-        Pixels::new(chip8::WIDTH, chip8::HEIGHT, surface_texture).unwrap()
+        Pixels::new(chip8::WIDTH as u32, chip8::HEIGHT as u32, surface_texture).unwrap()
     };
 
     log::trace!("Begin event loop");

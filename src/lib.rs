@@ -1,11 +1,22 @@
-pub const WIDTH: u32 = 64;
-pub const HEIGHT: u32 = 32;
+pub const WIDTH: u8 = 64;
+pub const HEIGHT: u8 = 32;
+const MEMORY_SIZE: usize = 4096;
 
-pub struct Chip8 {}
+pub struct Chip8 {
+    i: u16,                                            // 12-bit address register
+    v: [u8; 16],                                       // 16 8-bit data registers
+    memory: [u8; MEMORY_SIZE],                         // 4KB memory
+    display: [bool; WIDTH as usize * HEIGHT as usize], // 64 * 32 monochrome display
+}
 
 impl Chip8 {
     pub fn new() -> Self {
-        Self {}
+        Self {
+            i: 0,
+            v: [0; 16],
+            memory: [0; MEMORY_SIZE],
+            display: [false; WIDTH as usize * HEIGHT as usize],
+        }
     }
 
     pub fn execute_opcode(&mut self, opcode: u16) {
@@ -23,6 +34,7 @@ impl Chip8 {
         let x = ((opcode & 0x0F00) >> 8) as u8;
         let y = ((opcode & 0x00F0) >> 4) as u8;
 
+        log::info!("Execute opcode: {:#06X}", opcode);
         match nibbles {
             (0x0, 0x0, 0xE, 0x0) => self.op_00e0(),
             (0x0, 0x0, 0xE, 0xE) => self.op_00ee(),
@@ -61,11 +73,15 @@ impl Chip8 {
             (0xF, _, 0x6, 0x5) => self.op_fx65(x),
             _ => panic!("Unknown opcode {:#06X}", opcode),
         }
-        log::info!("Execute opcode: {:#06X}", opcode);
     }
 
     fn op_0nnn(&mut self, nnn: u16) {}
-    fn op_00e0(&mut self) {}
+
+    /// Clears the display.
+    fn op_00e0(&mut self) {
+        self.display.iter_mut().for_each(|p| *p = false);
+    }
+
     fn op_00ee(&mut self) {}
     fn op_1nnn(&mut self, nnn: u16) {}
     fn op_2nnn(&mut self, nnn: u16) {}
@@ -87,7 +103,37 @@ impl Chip8 {
     fn op_annn(&mut self, nnn: u16) {}
     fn op_bnnn(&mut self, nnn: u16) {}
     fn op_cxnn(&mut self, x: u8, kk: u8) {}
-    fn op_dxyn(&mut self, x: u8, y: u8, n: u8) {}
+
+    /// Draws a sprite at coordinates (`v[x], `v[y]`) with a width of 8 pixels and a height of `n` pixels. The row pixel data are read starting from the memory location at `i`. Since there are `n` such rows, `n` bytes will be read. Each byte is XOR'd onto the corresponding row to determine the final displayed pixels of that row. That is, the displayed pixel is flipped if the corresponding sprite pixel is set, and unchanged if not.
+    ///
+    /// If any of the displayed pixels are flipped from set to unset, then the carry flag `v[0xF]` is set to `1`. Otherwise, it is set to `0`.
+    ///
+    /// # Arguments
+    /// * `x` - the data register identifier from which the x-coordinate of the sprite will be read
+    /// * `y` - the data register identifier from which the y-coordinate of the sprite will be read
+    /// * `n` - the height of the sprite
+    fn op_dxyn(&mut self, x: u8, y: u8, n: u8) {
+        log::trace!("Inputs: x = {}, y = {}, n = {}", x, y, n);
+        self.v[0xF] = 0;
+        let (vx, vy) = (self.v[x as usize], self.v[y as usize]);
+        for oy in 0..n {
+            let y = (vy + oy) % HEIGHT;
+            // Contains the pixel data for each x-value (bit-coded)
+            let pixels = self.memory[(self.i + oy as u16) as usize];
+            for ox in 0..8 {
+                let x = (vx + ox) % WIDTH;
+                let p = pixels >> (7 - ox) & 0x1; // Extract the corresponding bit
+                let idx = x as usize + y as usize * WIDTH as usize;
+                // VF is set if any of the pixels are flipped from set to unset. Keeping in mind
+                // that the sprite pixels are XOR'd onto the corresponding screen pixels, this only
+                // happens when both the sprite pixel and screen pixel are set.
+                self.v[0xF] |= p & self.display[idx] as u8;
+                self.display[idx] ^= p == 1;
+                log::trace!("Set pixel at ({}, {}) to {}", x, y, self.display[idx]);
+            }
+        }
+    }
+
     fn op_ex9e(&mut self, x: u8) {}
     fn op_exa1(&mut self, x: u8) {}
     fn op_fx07(&mut self, x: u8) {}
