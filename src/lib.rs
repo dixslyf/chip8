@@ -10,6 +10,7 @@ pub struct Chip8 {
     v: [u8; 16],                                       // 16 8-bit data registers
     memory: [u8; MEMORY_SIZE],                         // 4KB memory
     display: [bool; WIDTH as usize * HEIGHT as usize], // 64 * 32 monochrome display
+    should_redraw: bool,
 }
 
 impl Chip8 {
@@ -20,6 +21,7 @@ impl Chip8 {
             v: [0; 16],
             memory: [0; MEMORY_SIZE],
             display: [false; WIDTH as usize * HEIGHT as usize],
+            should_redraw: false,
         }
     }
 
@@ -41,6 +43,26 @@ impl Chip8 {
 
     pub fn display(&self) -> &[bool; WIDTH as usize * HEIGHT as usize] {
         &self.display
+    }
+
+    pub fn execute_cycle(&mut self) {
+        let opcode = self.fetch_opcode();
+        self.execute_opcode(opcode);
+        self.pc += 2;
+
+        // Redraw only if the opcode is one of the display opcodes
+        self.should_redraw = opcode == 0x00E0 || opcode & 0xF000 == 0xD000;
+    }
+
+    pub fn should_redraw(&self) -> bool {
+        self.should_redraw
+    }
+
+    pub fn fetch_opcode(&self) -> u16 {
+        let pc = self.pc as usize;
+        let op1 = self.memory[pc];
+        let op2 = self.memory[pc + 1];
+        (op1 as u16) << 8 | op2 as u16
     }
 
     pub fn execute_opcode(&mut self, opcode: u16) {

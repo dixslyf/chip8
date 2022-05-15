@@ -60,7 +60,10 @@ pub fn main() {
             _ => {}
         },
         Event::MainEventsCleared => {
-            window.request_redraw();
+            chip8.execute_cycle();
+            if chip8.should_redraw() {
+                window.request_redraw();
+            }
         }
         Event::RedrawRequested(_) => {
             for (&set, pixel) in chip8
