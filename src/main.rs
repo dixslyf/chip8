@@ -1,4 +1,7 @@
+use std::{fs, path::PathBuf};
+
 use chip8::Chip8;
+use clap::Parser;
 use pixels::{Pixels, SurfaceTexture};
 use winit::{
     dpi::LogicalSize,
@@ -7,8 +10,19 @@ use winit::{
     window::WindowBuilder,
 };
 
+#[derive(Debug, Parser)]
+struct Args {
+    #[clap(parse(from_os_str))]
+    rom: PathBuf,
+}
+
 pub fn main() {
     init_logging();
+    let args = Args::parse();
+
+    let rom = fs::read(args.rom).unwrap();
+    let mut chip8 = Chip8::new();
+    chip8.load(&rom);
 
     log::trace!("Initialize event loop");
     let event_loop = EventLoop::new();
@@ -31,8 +45,6 @@ pub fn main() {
         let surface_texture = SurfaceTexture::new(window_size.width, window_size.height, &window);
         Pixels::new(chip8::WIDTH as u32, chip8::HEIGHT as u32, surface_texture).unwrap()
     };
-
-    let mut chip8 = Chip8::new();
 
     log::trace!("Begin event loop");
     event_loop.run(move |event, _, control_flow| match event {

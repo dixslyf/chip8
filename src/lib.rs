@@ -1,8 +1,11 @@
 pub const WIDTH: u8 = 64;
 pub const HEIGHT: u8 = 32;
 const MEMORY_SIZE: usize = 4096;
+const START_ROM_ADDRESS: usize = 0x200;
+const MAX_ROM_SIZE: usize = MEMORY_SIZE - START_ROM_ADDRESS;
 
 pub struct Chip8 {
+    pc: u16,
     i: u16,                                            // 12-bit address register
     v: [u8; 16],                                       // 16 8-bit data registers
     memory: [u8; MEMORY_SIZE],                         // 4KB memory
@@ -12,11 +15,28 @@ pub struct Chip8 {
 impl Chip8 {
     pub fn new() -> Self {
         Self {
+            pc: 0x200,
             i: 0,
             v: [0; 16],
             memory: [0; MEMORY_SIZE],
             display: [false; WIDTH as usize * HEIGHT as usize],
         }
+    }
+
+    pub fn load(&mut self, rom: &[u8]) {
+        self.pc = 0x200;
+
+        let rom_size = rom.len();
+        if rom_size > MAX_ROM_SIZE {
+            log::warn!(
+                "ROM of size {} bytes is larger than the max ROM size of {} bytes. ROM will be truncated!",
+                rom_size, MAX_ROM_SIZE
+            );
+            self.memory[START_ROM_ADDRESS..].copy_from_slice(&rom[..MAX_ROM_SIZE]);
+        } else {
+            self.memory[START_ROM_ADDRESS..(START_ROM_ADDRESS + rom_size)].copy_from_slice(&rom);
+        };
+        log::info!("Loaded ROM of size {} bytes", MAX_ROM_SIZE.min(rom_size));
     }
 
     pub fn display(&self) -> &[bool; WIDTH as usize * HEIGHT as usize] {
