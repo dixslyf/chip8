@@ -1,27 +1,58 @@
+use rand::Rng;
+
 pub const WIDTH: u8 = 64;
 pub const HEIGHT: u8 = 32;
+
 const MEMORY_SIZE: usize = 4096;
 const START_ROM_ADDRESS: usize = 0x200;
 const MAX_ROM_SIZE: usize = MEMORY_SIZE - START_ROM_ADDRESS;
+const FONTSET: [u8; 80] = [
+    0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
+    0x20, 0x60, 0x20, 0x20, 0x70, // 1
+    0xF0, 0x10, 0xF0, 0x80, 0xF0, // 2
+    0xF0, 0x10, 0xF0, 0x10, 0xF0, // 3
+    0x90, 0x90, 0xF0, 0x10, 0x10, // 4
+    0xF0, 0x80, 0xF0, 0x10, 0xF0, // 5
+    0xF0, 0x80, 0xF0, 0x90, 0xF0, // 6
+    0xF0, 0x10, 0x20, 0x40, 0x40, // 7
+    0xF0, 0x90, 0xF0, 0x90, 0xF0, // 8
+    0xF0, 0x90, 0xF0, 0x10, 0xF0, // 9
+    0xF0, 0x90, 0xF0, 0x90, 0x90, // A
+    0xE0, 0x90, 0xE0, 0x90, 0xE0, // B
+    0xF0, 0x80, 0x80, 0x80, 0xF0, // C
+    0xE0, 0x90, 0x90, 0x90, 0xE0, // D
+    0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
+    0xF0, 0x80, 0xF0, 0x80, 0x80, // F
+];
 
 pub struct Chip8 {
-    pc: u16,
+    pc: u16,                                           // 12-bit program counter
     i: u16,                                            // 12-bit address register
     v: [u8; 16],                                       // 16 8-bit data registers
+    stack: [u16; 16],                                  // 16-level stack
+    sp: u8,                                            // stack pointer
     memory: [u8; MEMORY_SIZE],                         // 4KB memory
     display: [bool; WIDTH as usize * HEIGHT as usize], // 64 * 32 monochrome display
     should_redraw: bool,
+    dt: u8,
+    st: u8,
 }
 
 impl Chip8 {
     pub fn new() -> Self {
+        let mut memory = [0; MEMORY_SIZE];
+        memory[..FONTSET.len()].copy_from_slice(&FONTSET);
         Self {
             pc: 0x200,
             i: 0,
             v: [0; 16],
-            memory: [0; MEMORY_SIZE],
+            stack: [0; 16],
+            sp: 0,
+            memory,
             display: [false; WIDTH as usize * HEIGHT as usize],
             should_redraw: false,
+            dt: 0,
+            st: 0,
         }
     }
 
@@ -48,10 +79,16 @@ impl Chip8 {
     pub fn execute_cycle(&mut self) {
         let opcode = self.fetch_opcode();
         self.execute_opcode(opcode);
-        self.pc += 2;
 
         // Redraw only if the opcode is one of the display opcodes
         self.should_redraw = opcode == 0x00E0 || opcode & 0xF000 == 0xD000;
+
+        self.dt = self.dt.saturating_sub(1);
+        self.st = self.st.saturating_sub(1);
+        if self.st == 0 {
+            // TODO: beep
+            log::info!("Beep!")
+        }
     }
 
     pub fn should_redraw(&self) -> bool {
@@ -121,34 +158,170 @@ impl Chip8 {
         }
     }
 
-    fn op_0nnn(&mut self, nnn: u16) {}
+    /// Calls the machine code routine at address `nnn`.
+    /// This opcode is unimplemented. Programs that use this opcode are written specifically for
+    /// the hardware that the CHIP-8 interpreter is running on.
+    fn op_0nnn(&mut self, _nnn: u16) {
+        log::warn!("Opcode 0NNN is unimplemented.");
+        self.pc += 2;
+    }
 
     /// Clears the display.
     fn op_00e0(&mut self) {
         self.display.iter_mut().for_each(|p| *p = false);
+        self.pc += 2;
     }
 
-    fn op_00ee(&mut self) {}
-    fn op_1nnn(&mut self, nnn: u16) {}
-    fn op_2nnn(&mut self, nnn: u16) {}
-    fn op_3xnn(&mut self, x: u8, kk: u8) {}
-    fn op_4xnn(&mut self, x: u8, kk: u8) {}
-    fn op_5xy0(&mut self, x: u8, y: u8) {}
-    fn op_6xnn(&mut self, x: u8, kk: u8) {}
-    fn op_7xnn(&mut self, x: u8, kk: u8) {}
-    fn op_8xy0(&mut self, x: u8, y: u8) {}
-    fn op_8xy1(&mut self, x: u8, y: u8) {}
-    fn op_8xy2(&mut self, x: u8, y: u8) {}
-    fn op_8xy3(&mut self, x: u8, y: u8) {}
-    fn op_8xy4(&mut self, x: u8, y: u8) {}
-    fn op_8xy5(&mut self, x: u8, y: u8) {}
-    fn op_8xy6(&mut self, x: u8, y: u8) {}
-    fn op_8xy7(&mut self, x: u8, y: u8) {}
-    fn op_8xye(&mut self, x: u8, y: u8) {}
-    fn op_9xy0(&mut self, x: u8, y: u8) {}
-    fn op_annn(&mut self, nnn: u16) {}
-    fn op_bnnn(&mut self, nnn: u16) {}
-    fn op_cxnn(&mut self, x: u8, kk: u8) {}
+    /// Returns from a subroutine.
+    /// The program counter is set to the address popped from the stack.
+    fn op_00ee(&mut self) {
+        self.sp -= 1;
+        self.pc = self.stack[self.sp as usize];
+    }
+
+    /// Jumps to address `nnn`.
+    /// The program counter is set to the address `nnn`.
+    fn op_1nnn(&mut self, nnn: u16) {
+        self.pc = nnn;
+    }
+
+    /// Executes the subroutine starting at address `nnn`.
+    /// The program counter is pushed onto the stack, and then set to `nnn`.
+    fn op_2nnn(&mut self, nnn: u16) {
+        self.stack[self.sp as usize] = self.pc;
+        self.sp += 1;
+        self.pc = nnn;
+    }
+
+    /// Skips the next instruction if `vx` equals `kk`.
+    fn op_3xnn(&mut self, x: u8, kk: u8) {
+        if self.v[x as usize] == kk {
+            self.pc += 4;
+        } else {
+            self.pc += 2;
+        }
+    }
+
+    /// Skips the next instruction if `vx` does not equal `kk`.
+    fn op_4xnn(&mut self, x: u8, kk: u8) {
+        if self.v[x as usize] != kk {
+            self.pc += 4;
+        } else {
+            self.pc += 2;
+        }
+    }
+
+    /// Skips the next instruction if `vx` equals `vy`.
+    fn op_5xy0(&mut self, x: u8, y: u8) {
+        if self.v[x as usize] == self.v[y as usize] {
+            self.pc += 4;
+        } else {
+            self.pc += 2;
+        }
+    }
+
+    /// Sets `vx` to `kk`.
+    fn op_6xnn(&mut self, x: u8, kk: u8) {
+        self.v[x as usize] = kk;
+        self.pc += 2;
+    }
+
+    /// Adds `kk` to `vx`.
+    fn op_7xnn(&mut self, x: u8, kk: u8) {
+        self.v[x as usize] = self.v[x as usize].wrapping_add(kk);
+        self.pc += 2;
+    }
+
+    /// Sets `vx` to `vy`.
+    fn op_8xy0(&mut self, x: u8, y: u8) {
+        self.v[x as usize] = self.v[y as usize];
+        self.pc += 2;
+    }
+
+    /// Sets `vx` to the bitwise OR of `vx` and `vy`.
+    fn op_8xy1(&mut self, x: u8, y: u8) {
+        self.v[x as usize] |= self.v[y as usize];
+        self.pc += 2;
+    }
+
+    /// Sets `vx` to the bitwise AND of `vx` and `vy`.
+    fn op_8xy2(&mut self, x: u8, y: u8) {
+        self.v[x as usize] &= self.v[y as usize];
+        self.pc += 2;
+    }
+
+    /// Sets `vx` to the XOR of `vx` and `vy`.
+    fn op_8xy3(&mut self, x: u8, y: u8) {
+        self.v[x as usize] ^= self.v[y as usize];
+        self.pc += 2;
+    }
+
+    /// Adds `vy` to `vx`. `vf` is set to `1` if a carry occurs, and `0` if not.
+    fn op_8xy4(&mut self, x: u8, y: u8) {
+        let (sum, carry) = self.v[x as usize].overflowing_add(self.v[y as usize]);
+        self.v[x as usize] = sum;
+        self.v[0xF] = carry as u8;
+        self.pc += 2;
+    }
+
+    /// Subtracts `vy` from `vx`. `vf` is set to `0` if a borrow occurs, and `1` if not.
+    fn op_8xy5(&mut self, x: u8, y: u8) {
+        let (diff, borrow) = self.v[x as usize].overflowing_sub(self.v[y as usize]);
+        self.v[x as usize] = diff;
+        self.v[0xF] = !borrow as u8;
+        self.pc += 2;
+    }
+
+    /// Sets `vx` to `vy` shifted right by one bit. `vf` is set to the least significant bit of `vy`
+    /// prior to the shift.
+    fn op_8xy6(&mut self, x: u8, y: u8) {
+        self.v[0xF] = self.v[y as usize] & 0x1;
+        self.v[x as usize] = self.v[y as usize] >> 1;
+        self.pc += 2;
+    }
+
+    /// Sets `vx` to `vy - vx`. `vf` is set to `0` if a borrow occurs, and `1` if not.
+    fn op_8xy7(&mut self, x: u8, y: u8) {
+        let (diff, borrow) = self.v[y as usize].overflowing_sub(self.v[x as usize]);
+        self.v[x as usize] = diff;
+        self.v[0xF] = !borrow as u8;
+        self.pc += 2;
+    }
+
+    /// Sets `vx` to `vy` shifted left by one bit. `vf` is set to the most significant bit of `vy`
+    /// prior to the shift.
+    fn op_8xye(&mut self, x: u8, y: u8) {
+        self.v[0xF] = self.v[y as usize] & 0b1000_0000;
+        self.v[x as usize] = self.v[y as usize] << 1;
+        self.pc += 2;
+    }
+
+    /// Skips the next instruction if `vx` does not equal `vy`.
+    fn op_9xy0(&mut self, x: u8, y: u8) {
+        if self.v[x as usize] != self.v[y as usize] {
+            self.pc += 4;
+        } else {
+            self.pc += 2;
+        }
+    }
+
+    /// Sets the address register `i` to `nnn`.
+    fn op_annn(&mut self, nnn: u16) {
+        self.i = nnn;
+        self.pc += 2;
+    }
+
+    /// Jumps to address `nnn + v0`.
+    /// The program counter is set to the address `nnn + v0`.
+    fn op_bnnn(&mut self, nnn: u16) {
+        self.pc = nnn + self.v[0] as u16;
+    }
+
+    /// Sets `vx` to the bitwise AND of a random number and `kk`.
+    fn op_cxnn(&mut self, x: u8, kk: u8) {
+        self.v[x as usize] = rand::thread_rng().gen::<u8>() & kk;
+        self.pc += 2;
+    }
 
     /// Draws a sprite at coordinates (`v[x], `v[y]`) with a width of 8 pixels and a height of `n` pixels. The row pixel data are read starting from the memory location at `i`. Since there are `n` such rows, `n` bytes will be read. Each byte is XOR'd onto the corresponding row to determine the final displayed pixels of that row. That is, the displayed pixel is flipped if the corresponding sprite pixel is set, and unchanged if not.
     ///
@@ -178,17 +351,79 @@ impl Chip8 {
                 log::trace!("Set pixel at ({}, {}) to {}", x, y, self.display[idx]);
             }
         }
+        self.pc += 2;
     }
 
-    fn op_ex9e(&mut self, x: u8) {}
-    fn op_exa1(&mut self, x: u8) {}
-    fn op_fx07(&mut self, x: u8) {}
-    fn op_fx0a(&mut self, x: u8) {}
-    fn op_fx15(&mut self, x: u8) {}
-    fn op_fx18(&mut self, x: u8) {}
-    fn op_fx1e(&mut self, x: u8) {}
-    fn op_fx29(&mut self, x: u8) {}
-    fn op_fx33(&mut self, x: u8) {}
-    fn op_fx55(&mut self, x: u8) {}
-    fn op_fx65(&mut self, x: u8) {}
+    /// TODO: Skips the next instruction if the key stored in `vx` is pressed.
+    fn op_ex9e(&mut self, x: u8) {
+        self.pc += 2;
+    }
+
+    /// TODO: Skips the next instruction if the key stored in `vx` is not pressed.
+    fn op_exa1(&mut self, x: u8) {
+        self.pc += 2;
+    }
+
+    /// Sets `vx` to the current value of the delay timer.
+    fn op_fx07(&mut self, x: u8) {
+        self.v[x as usize] = self.dt;
+        self.pc += 2;
+    }
+
+    /// TODO: Blocks until a key is pressed, then stores the result in `vx`.
+    fn op_fx0a(&mut self, x: u8) {
+        self.pc += 2;
+    }
+
+    /// Sets the delay timer to `vx`.
+    fn op_fx15(&mut self, x: u8) {
+        self.dt = self.v[x as usize];
+        self.pc += 2;
+    }
+
+    /// Sets the sound timer to `vx`.
+    fn op_fx18(&mut self, x: u8) {
+        self.st = self.v[x as usize];
+        self.pc += 2;
+    }
+
+    /// Adds `vx` to the address register `i`.
+    fn op_fx1e(&mut self, x: u8) {
+        self.i = self.i.wrapping_add(self.v[x as usize] as u16);
+        self.pc += 2;
+    }
+
+    /// Sets the address register `i` to the memory address of the sprite for the hexadecimal
+    /// digit in `vx`.
+    fn op_fx29(&mut self, x: u8) {
+        // The fontset is loaded at address 0 in ascending order,
+        // and each digit is represented by a sprite which takes up 5 bytes.
+        self.i = (self.v[x as usize] * 5) as u16;
+        self.pc += 2;
+    }
+
+    /// Stores the binary-coded decimal equivalent of `vx` at addresses `i`, `i + 1` and `i + 2`.
+    fn op_fx33(&mut self, x: u8) {
+        self.memory[self.i as usize] = self.v[x as usize] / 100;
+        self.memory[(self.i + 1) as usize] = (self.v[x as usize] % 100) / 10;
+        self.memory[(self.i + 2) as usize] = self.v[x as usize] % 10;
+        self.pc += 2;
+    }
+
+    /// Stores the values of `v0` to `vx` (inclusive) in memory, starting from the address in `i`. `i` is set to `i + x + 1`.
+    fn op_fx55(&mut self, x: u8) {
+        self.memory[self.i as usize..=self.i as usize + x as usize]
+            .copy_from_slice(&self.v[..=x as usize]);
+        self.i = self.i + x as u16 + 1;
+        self.pc += 2;
+    }
+
+    /// Fills `v0` to `vx` (inclusive) with the values stored in memory, starting from the address
+    /// in `i`. `i` is set to `i + x + 1`.
+    fn op_fx65(&mut self, x: u8) {
+        self.v[..=x as usize]
+            .copy_from_slice(&self.memory[self.i as usize..=self.i as usize + x as usize]);
+        self.i = self.i + x as u16 + 1;
+        self.pc += 2;
+    }
 }
