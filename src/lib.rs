@@ -1,7 +1,8 @@
+use bitvec::{array::BitArray, order::Msb0, slice::BitSlice, view::BitView, BitArr};
 use rand::Rng;
 
-pub const WIDTH: u8 = 64;
-pub const HEIGHT: u8 = 32;
+pub const WIDTH: usize = 64;
+pub const HEIGHT: usize = 32;
 
 const MEMORY_SIZE: usize = 4096;
 const START_ROM_ADDRESS: usize = 0x200;
@@ -26,13 +27,13 @@ const FONTSET: [u8; 80] = [
 ];
 
 pub struct Chip8 {
-    pc: u16,                                           // 12-bit program counter
-    i: u16,                                            // 12-bit address register
-    v: [u8; 16],                                       // 16 8-bit data registers
-    stack: [u16; 16],                                  // 16-level stack
-    sp: u8,                                            // stack pointer
-    memory: [u8; MEMORY_SIZE],                         // 4KB memory
-    display: [bool; WIDTH as usize * HEIGHT as usize], // 64 * 32 monochrome display
+    pc: u16,                                     // 12-bit program counter
+    i: u16,                                      // 12-bit address register
+    v: [u8; 16],                                 // 16 8-bit data registers
+    stack: [u16; 16],                            // 16-level stack
+    sp: u8,                                      // stack pointer
+    memory: [u8; MEMORY_SIZE],                   // 4KB memory
+    display: BitArr!(for WIDTH * HEIGHT, in u8), // 64 * 32 monochrome display
     should_redraw: bool,
     dt: u8,
     st: u8,
@@ -49,7 +50,7 @@ impl Chip8 {
             stack: [0; 16],
             sp: 0,
             memory,
-            display: [false; WIDTH as usize * HEIGHT as usize],
+            display: BitArray::ZERO,
             should_redraw: false,
             dt: 0,
             st: 0,
@@ -72,8 +73,8 @@ impl Chip8 {
         log::info!("Loaded ROM of size {} bytes", MAX_ROM_SIZE.min(rom_size));
     }
 
-    pub fn display(&self) -> &[bool; WIDTH as usize * HEIGHT as usize] {
-        &self.display
+    pub fn display(&self) -> &BitSlice<u8> {
+        self.display.as_bitslice()
     }
 
     pub fn execute_cycle(&mut self) {
@@ -168,7 +169,7 @@ impl Chip8 {
 
     /// Clears the display.
     fn op_00e0(&mut self) {
-        self.display.iter_mut().for_each(|p| *p = false);
+        self.display.fill(false);
         self.pc += 2;
     }
 
@@ -326,29 +327,25 @@ impl Chip8 {
     /// Draws a sprite at coordinates (`v[x], `v[y]`) with a width of 8 pixels and a height of `n` pixels. The row pixel data are read starting from the memory location at `i`. Since there are `n` such rows, `n` bytes will be read. Each byte is XOR'd onto the corresponding row to determine the final displayed pixels of that row. That is, the displayed pixel is flipped if the corresponding sprite pixel is set, and unchanged if not.
     ///
     /// If any of the displayed pixels are flipped from set to unset, then the carry flag `v[0xF]` is set to `1`. Otherwise, it is set to `0`.
+    /// This occurs if and only if both the sprite pixel and corresponding display pixel are both `1`.
     ///
     /// # Arguments
     /// * `x` - the data register identifier from which the x-coordinate of the sprite will be read
     /// * `y` - the data register identifier from which the y-coordinate of the sprite will be read
     /// * `n` - the height of the sprite
     fn op_dxyn(&mut self, x: u8, y: u8, n: u8) {
-        log::trace!("Inputs: x = {}, y = {}, n = {}", x, y, n);
         self.v[0xF] = 0;
         let (vx, vy) = (self.v[x as usize], self.v[y as usize]);
         for oy in 0..n {
-            let y = (vy + oy) % HEIGHT;
-            // Contains the pixel data for each x-value (bit-coded)
-            let pixels = self.memory[(self.i + oy as u16) as usize];
-            for ox in 0..8 {
-                let x = (vx + ox) % WIDTH;
-                let p = pixels >> (7 - ox) & 0x1; // Extract the corresponding bit
-                let idx = x as usize + y as usize * WIDTH as usize;
-                // VF is set if any of the pixels are flipped from set to unset. Keeping in mind
-                // that the sprite pixels are XOR'd onto the corresponding screen pixels, this only
-                // happens when both the sprite pixel and screen pixel are set.
-                self.v[0xF] |= p & self.display[idx] as u8;
-                self.display[idx] ^= p == 1;
-                log::trace!("Set pixel at ({}, {}) to {}", x, y, self.display[idx]);
+            let y = (vy as usize + oy as usize) % HEIGHT;
+
+            let sprite_pixels = self.memory[(self.i + oy as u16) as usize];
+            for (ox, spx) in sprite_pixels.view_bits::<Msb0>().iter().enumerate() {
+                let x = (vx as usize + ox) % WIDTH;
+                let idx = x + y * WIDTH;
+                let mut dpx = self.display.get_mut(idx).unwrap();
+                self.v[0xF] |= (*dpx & *spx) as u8;
+                *dpx ^= *spx;
             }
         }
         self.pc += 2;

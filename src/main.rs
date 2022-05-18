@@ -66,17 +66,17 @@ pub fn main() {
             }
         }
         Event::RedrawRequested(_) => {
-            for (&set, pixel) in chip8
+            for (dpx, wpx) in chip8
                 .display()
                 .iter()
                 .zip(pixels.get_frame().chunks_exact_mut(4))
             {
-                let color = if set {
+                let color = if *dpx {
                     [0xff, 0xff, 0xff, 0xff]
                 } else {
                     [0x00, 0x00, 0x00, 0xff]
                 };
-                pixel.copy_from_slice(&color);
+                wpx.copy_from_slice(&color);
             }
             pixels.render().unwrap();
         }
