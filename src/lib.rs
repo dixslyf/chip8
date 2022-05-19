@@ -1,3 +1,4 @@
+use arrayvec::ArrayVec;
 use bitvec::{array::BitArray, order::Msb0, slice::BitSlice, view::BitView, BitArr};
 use rand::Rng;
 
@@ -32,8 +33,7 @@ pub struct Chip8 {
     pc: u16,                                     // 12-bit program counter
     i: u16,                                      // 12-bit address register
     v: [u8; REGISTER_COUNT],                     // 16 8-bit data registers
-    stack: [u16; STACK_SIZE],                    // 16-level stack
-    sp: u8,                                      // stack pointer
+    stack: ArrayVec<u16, STACK_SIZE>,            // 16-level stack
     memory: [u8; MEMORY_SIZE],                   // 4KB memory
     display: BitArr!(for WIDTH * HEIGHT, in u8), // 64 * 32 monochrome display
     should_redraw: bool,
@@ -49,8 +49,7 @@ impl Chip8 {
             pc: START_ROM_ADDRESS as u16,
             i: 0,
             v: [0; REGISTER_COUNT],
-            stack: [0; STACK_SIZE],
-            sp: 0,
+            stack: ArrayVec::new(),
             memory,
             display: BitArray::ZERO,
             should_redraw: false,
@@ -178,8 +177,7 @@ impl Chip8 {
     /// Returns from a subroutine.
     /// The program counter is set to the address popped from the stack.
     fn op_00ee(&mut self) {
-        self.sp -= 1;
-        self.pc = self.stack[self.sp as usize];
+        self.pc = self.stack.pop().unwrap();
     }
 
     /// Jumps to address `nnn`.
@@ -191,8 +189,7 @@ impl Chip8 {
     /// Executes the subroutine starting at address `nnn`.
     /// The program counter is pushed onto the stack, and then set to `nnn`.
     fn op_2nnn(&mut self, nnn: u16) {
-        self.stack[self.sp as usize] = self.pc;
-        self.sp += 1;
+        self.stack.push(self.pc);
         self.pc = nnn;
     }
 
