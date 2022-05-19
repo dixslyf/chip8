@@ -4,6 +4,8 @@ use rand::Rng;
 pub const WIDTH: usize = 64;
 pub const HEIGHT: usize = 32;
 
+const REGISTER_COUNT: usize = 16;
+const STACK_SIZE: usize = 16;
 const MEMORY_SIZE: usize = 4096;
 const START_ROM_ADDRESS: usize = 0x200;
 const MAX_ROM_SIZE: usize = MEMORY_SIZE - START_ROM_ADDRESS;
@@ -29,8 +31,8 @@ const FONTSET: [u8; 80] = [
 pub struct Chip8 {
     pc: u16,                                     // 12-bit program counter
     i: u16,                                      // 12-bit address register
-    v: [u8; 16],                                 // 16 8-bit data registers
-    stack: [u16; 16],                            // 16-level stack
+    v: [u8; REGISTER_COUNT],                     // 16 8-bit data registers
+    stack: [u16; STACK_SIZE],                    // 16-level stack
     sp: u8,                                      // stack pointer
     memory: [u8; MEMORY_SIZE],                   // 4KB memory
     display: BitArr!(for WIDTH * HEIGHT, in u8), // 64 * 32 monochrome display
@@ -44,10 +46,10 @@ impl Chip8 {
         let mut memory = [0; MEMORY_SIZE];
         memory[..FONTSET.len()].copy_from_slice(&FONTSET);
         Self {
-            pc: 0x200,
+            pc: START_ROM_ADDRESS as u16,
             i: 0,
-            v: [0; 16],
-            stack: [0; 16],
+            v: [0; REGISTER_COUNT],
+            stack: [0; STACK_SIZE],
             sp: 0,
             memory,
             display: BitArray::ZERO,
@@ -58,7 +60,7 @@ impl Chip8 {
     }
 
     pub fn load(&mut self, rom: &[u8]) {
-        self.pc = 0x200;
+        self.pc = START_ROM_ADDRESS as u16;
 
         let rom_size = rom.len();
         if rom_size > MAX_ROM_SIZE {
