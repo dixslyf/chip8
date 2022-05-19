@@ -86,11 +86,12 @@ impl Chip8 {
         self.should_redraw = opcode == 0x00E0 || opcode & 0xF000 == 0xD000;
 
         self.dt = self.dt.saturating_sub(1);
-        self.st = self.st.saturating_sub(1);
-        if self.st == 0 {
+
+        if self.st == 1 {
             // TODO: beep
             log::info!("Beep!")
         }
+        self.st = self.st.saturating_sub(1);
     }
 
     pub fn should_redraw(&self) -> bool {
