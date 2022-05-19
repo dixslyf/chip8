@@ -108,9 +108,9 @@ impl Chip8 {
     pub fn execute_opcode(&mut self, opcode: u16) {
         // Break into nibbles
         let nibbles = (
-            (opcode & 0xF000) >> 12 as u8,
-            (opcode & 0x0F00) >> 8 as u8,
-            (opcode & 0x00F0) >> 4 as u8,
+            ((opcode & 0xF000) >> 12) as u8,
+            ((opcode & 0x0F00) >> 8) as u8,
+            ((opcode & 0x00F0) >> 4) as u8,
             (opcode & 0x000F) as u8,
         );
 
