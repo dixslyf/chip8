@@ -324,10 +324,20 @@ impl Chip8 {
         self.pc += 2;
     }
 
-    /// Draws a sprite at coordinates (`v[x], `v[y]`) with a width of 8 pixels and a height of `n` pixels. The row pixel data are read starting from the memory location at `i`. Since there are `n` such rows, `n` bytes will be read. Each byte is XOR'd onto the corresponding row to determine the final displayed pixels of that row. That is, the displayed pixel is flipped if the corresponding sprite pixel is set, and unchanged if not.
+    /// Draws a sprite at coordinates (`v[x], `v[y]`) with a width of 8 pixels and a height of `n`
+    /// pixels. The row pixel data are read starting from the memory location at `i`. Since there
+    /// are `n` such rows, `n` bytes will be read. Each byte is XOR'd onto the corresponding row
+    /// to determine the final displayed pixels of that row. That is, the displayed pixel is
+    /// flipped if the corresponding sprite pixel is set, and unchanged if not.
     ///
-    /// If any of the displayed pixels are flipped from set to unset, then the carry flag `v[0xF]` is set to `1`. Otherwise, it is set to `0`.
-    /// This occurs if and only if both the sprite pixel and corresponding display pixel are both `1`.
+    /// If the x-coordinate `v[x]` is outside the range of the display, then it is reduced modulo
+    /// `64`, the width of the display. Likewise, for the y-coordinate `v[y]`, it will be reduced
+    /// modulo `32`, the height of the display. However, sprites that are drawn partially offscreen
+    /// are clipped rather than wrapped.
+    ///
+    /// If any of the displayed pixels are flipped from set to unset, then the carry flag `v[0xF]`
+    /// is set to `1`. Otherwise, it is set to `0`. This occurs if and only if both the sprite
+    /// pixel and corresponding display pixel are both `1`.
     ///
     /// # Arguments
     /// * `x` - the data register identifier from which the x-coordinate of the sprite will be read
@@ -335,13 +345,24 @@ impl Chip8 {
     /// * `n` - the height of the sprite
     fn op_dxyn(&mut self, x: u8, y: u8, n: u8) {
         self.v[0xF] = 0;
-        let (vx, vy) = (self.v[x as usize], self.v[y as usize]);
+        let (vx, vy) = (
+            self.v[x as usize] % WIDTH as u8,
+            self.v[y as usize] % HEIGHT as u8,
+        );
+
         for oy in 0..n {
             let y = (vy as usize + oy as usize) % HEIGHT;
+            if y >= HEIGHT {
+                break;
+            }
 
             let sprite_pixels = self.memory[(self.i + oy as u16) as usize];
             for (ox, spx) in sprite_pixels.view_bits::<Msb0>().iter().enumerate() {
-                let x = (vx as usize + ox) % WIDTH;
+                let x = vx as usize + ox;
+                if x >= WIDTH {
+                    break;
+                }
+
                 let idx = x + y * WIDTH;
                 let mut dpx = self.display.get_mut(idx).unwrap();
                 self.v[0xF] |= (*dpx & *spx) as u8;
