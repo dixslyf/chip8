@@ -57,7 +57,8 @@ pub fn main() {
         Event::WindowEvent { event, .. } => match event {
             WindowEvent::Resized(size) => {
                 log::debug!("Resize window and surface");
-                pixels.resize_surface(size.width, size.height)
+                pixels.resize_surface(size.width, size.height);
+                pixels.render().unwrap();
             }
             WindowEvent::CloseRequested => {
                 log::trace!("Close requested");
