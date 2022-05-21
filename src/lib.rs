@@ -386,7 +386,7 @@ impl Chip8 {
         );
 
         for oy in 0..n {
-            let y = (vy as usize + oy as usize) % HEIGHT;
+            let y = vy as usize + oy as usize;
             if y >= HEIGHT {
                 break;
             }
