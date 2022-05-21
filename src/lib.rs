@@ -1,7 +1,7 @@
 use std::sync::mpsc;
 
 use arrayvec::ArrayVec;
-use bitvec::{array::BitArray, order::Msb0, slice::BitSlice, view::BitView, BitArr};
+use bitvec::{array::BitArray, order::Msb0, view::BitView, BitArr};
 use rand::Rng;
 
 pub const WIDTH: usize = 64;
@@ -34,6 +34,22 @@ const FONTSET: [u8; 80] = [
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum Event {
     Tick,
+    Input(Input),
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum Input {
+    Up(Key),
+    Down(Key),
+}
+
+#[cfg_attr(rustfmt, rustfmt_skip)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum Key {
+    Key1, Key2, Key3, KeyC,
+    Key4, Key5, Key6, KeyD,
+    Key7, Key8, Key9, KeyE,
+    KeyA, Key0, KeyB, KeyF
 }
 
 pub struct Chip8 {
@@ -46,6 +62,7 @@ pub struct Chip8 {
     should_redraw: bool,
     dt: u8,
     st: u8,
+    keypad: BitArr!(for 16, in u8), // 16-key keypad
     event_tx: mpsc::Sender<Event>,
     event_rx: mpsc::Receiver<Event>,
     display_tx: mpsc::SyncSender<Vec<u8>>,
@@ -68,6 +85,7 @@ impl Chip8 {
             should_redraw: false,
             dt: 0,
             st: 0,
+            keypad: BitArray::ZERO,
             event_tx,
             event_rx,
             display_tx,
@@ -94,6 +112,13 @@ impl Chip8 {
         &self.event_tx
     }
 
+    fn register_input(&mut self, input: Input) {
+        match input {
+            Input::Up(key) => *self.keypad.get_mut(key as usize).unwrap() = false,
+            Input::Down(key) => *self.keypad.get_mut(key as usize).unwrap() = true,
+        };
+    }
+
     pub fn run_event_loop(&mut self) {
         loop {
             match self.event_rx.recv() {
@@ -102,11 +127,12 @@ impl Chip8 {
                         self.execute_cycle();
                         if self.should_redraw() {
                             match self.display_tx.send(self.display.to_bitvec().into_vec()) {
-                                Ok(()) => log::trace!("Send display data"),
+                                Ok(_) => log::trace!("Send display data"),
                                 Err(_) => log::error!("Display channel disconnected!"),
                             }
                         }
                     }
+                    Event::Input(input) => self.register_input(input),
                 },
                 Err(_) => log::error!("Event channel disconnected!"),
             }
@@ -407,14 +433,24 @@ impl Chip8 {
         self.pc += 2;
     }
 
-    /// TODO: Skips the next instruction if the key stored in `vx` is pressed.
+    /// Skips the next instruction if the key stored in `vx` is pressed.
     fn op_ex9e(&mut self, x: u8) {
-        self.pc += 2;
+        let vx = self.v[x as usize];
+        if self.keypad[vx as usize] {
+            self.pc += 4;
+        } else {
+            self.pc += 2;
+        }
     }
 
-    /// TODO: Skips the next instruction if the key stored in `vx` is not pressed.
+    /// Skips the next instruction if the key stored in `vx` is not pressed.
     fn op_exa1(&mut self, x: u8) {
-        self.pc += 2;
+        let vx = self.v[x as usize];
+        if !self.keypad[vx as usize] {
+            self.pc += 4;
+        } else {
+            self.pc += 2;
+        }
     }
 
     /// Sets `vx` to the current value of the delay timer.
@@ -423,8 +459,26 @@ impl Chip8 {
         self.pc += 2;
     }
 
-    /// TODO: Blocks until a key is pressed, then stores the result in `vx`.
+    /// Blocks until a key is pressed, then stores the result in `vx`.
     fn op_fx0a(&mut self, x: u8) {
+        loop {
+            match self.event_rx.recv() {
+                Ok(ev) => match ev {
+                    Event::Tick => (),
+                    Event::Input(input) => {
+                        self.register_input(input);
+                        match input {
+                            Input::Down(key) => {
+                                self.v[x as usize] = key as u8;
+                                break;
+                            }
+                            Input::Up(_) => (),
+                        }
+                    }
+                },
+                Err(_) => log::error!("Event channel disconnected!"),
+            }
+        }
         self.pc += 2;
     }
 

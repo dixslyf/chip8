@@ -64,6 +64,41 @@ pub fn main() {
                 log::trace!("Close requested");
                 *control_flow = ControlFlow::Exit
             }
+            WindowEvent::KeyboardInput { input, .. } => {
+                let key = match input.scancode {
+                    2 => chip8::Key::Key1,  // 1
+                    3 => chip8::Key::Key2,  // 2
+                    4 => chip8::Key::Key3,  // 3
+                    5 => chip8::Key::KeyC,  // 4
+                    16 => chip8::Key::Key4, // Q
+                    17 => chip8::Key::Key5, // W
+                    18 => chip8::Key::Key6, // E
+                    19 => chip8::Key::KeyD, // R
+                    30 => chip8::Key::Key7, // A
+                    31 => chip8::Key::Key8, // S
+                    32 => chip8::Key::Key9, // D
+                    33 => chip8::Key::KeyE, // F
+                    44 => chip8::Key::KeyA, // Z
+                    45 => chip8::Key::Key0, // X
+                    46 => chip8::Key::KeyB, // C
+                    47 => chip8::Key::KeyF, // V
+                    _ => return,
+                };
+
+                let result = match input.state {
+                    winit::event::ElementState::Pressed => {
+                        chip8_tx.send(chip8::Event::Input(chip8::Input::Down(key)))
+                    }
+                    winit::event::ElementState::Released => {
+                        chip8_tx.send(chip8::Event::Input(chip8::Input::Up(key)))
+                    }
+                };
+
+                match result {
+                    Ok(()) => log::info!("Input: {:?} {:?}", input.state, key),
+                    Err(_) => log::error!("Event channel disconnected!"),
+                }
+            }
             _ => {}
         },
         Event::MainEventsCleared => {
@@ -131,7 +166,7 @@ fn init_logging() {
                 ));
             }
         })
-        .level(log::LevelFilter::Trace)
+        .level(log::LevelFilter::Debug)
         .level_for("wgpu_core", log::LevelFilter::Warn)
         .level_for("wgpu_hal", log::LevelFilter::Warn)
         .level_for("naga", log::LevelFilter::Warn)
