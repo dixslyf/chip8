@@ -223,9 +223,9 @@ impl Chip8 {
     }
 
     /// Executes the subroutine starting at address `nnn`.
-    /// The program counter is pushed onto the stack, and then set to `nnn`.
+    /// The program counter for the next instruction is pushed onto the stack, and then set to `nnn`.
     fn op_2nnn(&mut self, nnn: u16) {
-        self.stack.push(self.pc);
+        self.stack.push(self.pc + 2);
         self.pc = nnn;
     }
 
