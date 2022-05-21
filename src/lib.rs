@@ -1,3 +1,5 @@
+use std::sync::mpsc;
+
 use arrayvec::ArrayVec;
 use bitvec::{array::BitArray, order::Msb0, slice::BitSlice, view::BitView, BitArr};
 use rand::Rng;
@@ -29,6 +31,11 @@ const FONTSET: [u8; 80] = [
     0xF0, 0x80, 0xF0, 0x80, 0x80, // F
 ];
 
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum Event {
+    Tick,
+}
+
 pub struct Chip8 {
     pc: u16,                                     // 12-bit program counter
     i: u16,                                      // 12-bit address register
@@ -39,12 +46,18 @@ pub struct Chip8 {
     should_redraw: bool,
     dt: u8,
     st: u8,
+    event_tx: mpsc::Sender<Event>,
+    event_rx: mpsc::Receiver<Event>,
+    display_tx: mpsc::SyncSender<Vec<u8>>,
 }
 
 impl Chip8 {
-    pub fn new() -> Self {
+    pub fn new(display_tx: mpsc::SyncSender<Vec<u8>>) -> Self {
         let mut memory = [0; MEMORY_SIZE];
         memory[..FONTSET.len()].copy_from_slice(&FONTSET);
+
+        let (event_tx, event_rx) = mpsc::channel();
+
         Self {
             pc: START_ROM_ADDRESS as u16,
             i: 0,
@@ -55,6 +68,9 @@ impl Chip8 {
             should_redraw: false,
             dt: 0,
             st: 0,
+            event_tx,
+            event_rx,
+            display_tx,
         }
     }
 
@@ -74,8 +90,27 @@ impl Chip8 {
         log::info!("Loaded ROM of size {} bytes", MAX_ROM_SIZE.min(rom_size));
     }
 
-    pub fn display(&self) -> &BitSlice<u8> {
-        self.display.as_bitslice()
+    pub fn event_tx(&self) -> &mpsc::Sender<Event> {
+        &self.event_tx
+    }
+
+    pub fn run_event_loop(&mut self) {
+        loop {
+            match self.event_rx.recv() {
+                Ok(ev) => match ev {
+                    Event::Tick => {
+                        self.execute_cycle();
+                        if self.should_redraw() {
+                            match self.display_tx.send(self.display.to_bitvec().into_vec()) {
+                                Ok(()) => log::trace!("Send display data"),
+                                Err(_) => log::error!("Display channel disconnected!"),
+                            }
+                        }
+                    }
+                },
+                Err(_) => log::error!("Event channel disconnected!"),
+            }
+        }
     }
 
     pub fn execute_cycle(&mut self) {

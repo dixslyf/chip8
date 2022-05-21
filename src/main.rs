@@ -1,5 +1,6 @@
-use std::{fs, path::PathBuf};
+use std::{fs, path::PathBuf, sync::mpsc, thread};
 
+use bitvec::{order::Lsb0, view::BitView};
 use chip8::Chip8;
 use clap::Parser;
 use pixels::{Pixels, SurfaceTexture};
@@ -20,9 +21,14 @@ pub fn main() {
     init_logging();
     let args = Args::parse();
 
+    let (display_tx, display_rx) = mpsc::sync_channel(0);
     let rom = fs::read(args.rom).unwrap();
-    let mut chip8 = Chip8::new();
+    let mut chip8 = Chip8::new(display_tx);
+    let chip8_tx = chip8.event_tx().clone();
     chip8.load(&rom);
+    thread::spawn(move || {
+        chip8.run_event_loop();
+    });
 
     log::trace!("Initialize event loop");
     let event_loop = EventLoop::new();
@@ -60,25 +66,34 @@ pub fn main() {
             _ => {}
         },
         Event::MainEventsCleared => {
-            chip8.execute_cycle();
-            if chip8.should_redraw() {
-                window.request_redraw();
+            match chip8_tx.send(chip8::Event::Tick) {
+                Ok(()) => log::trace!("Tick"),
+                Err(_) => log::error!("Event channel disconnected!"),
             }
-        }
-        Event::RedrawRequested(_) => {
-            for (dpx, wpx) in chip8
-                .display()
-                .iter()
-                .zip(pixels.get_frame().chunks_exact_mut(4))
-            {
-                let color = if *dpx {
-                    [0xff, 0xff, 0xff, 0xff]
-                } else {
-                    [0x00, 0x00, 0x00, 0xff]
-                };
-                wpx.copy_from_slice(&color);
+
+            match display_rx.try_recv() {
+                Ok(data) => {
+                    for (dpx, wpx) in data
+                        .view_bits::<Lsb0>()
+                        .iter()
+                        .zip(pixels.get_frame().chunks_exact_mut(4))
+                    {
+                        let color = if *dpx {
+                            [0xff, 0xff, 0xff, 0xff]
+                        } else {
+                            [0x00, 0x00, 0x00, 0xff]
+                        };
+                        wpx.copy_from_slice(&color);
+                    }
+                    pixels.render().unwrap();
+                }
+                Err(e) => match e {
+                    mpsc::TryRecvError::Empty => (),
+                    mpsc::TryRecvError::Disconnected => {
+                        log::error!("Display channel disconnected!")
+                    }
+                },
             }
-            pixels.render().unwrap();
         }
         _ => {}
     });
