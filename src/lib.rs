@@ -181,7 +181,7 @@ impl Chip8 {
         let x = ((opcode & 0x0F00) >> 8) as u8;
         let y = ((opcode & 0x00F0) >> 4) as u8;
 
-        log::info!("Execute opcode: {:#06X}", opcode);
+        log::trace!("Execute opcode: {:#06X}", opcode);
         match nibbles {
             [0x0, 0x0, 0xE, 0x0] => self.op_00e0(),
             [0x0, 0x0, 0xE, 0xE] => self.op_00ee(),
