@@ -1,7 +1,5 @@
-use std::sync::mpsc;
-
 use arrayvec::ArrayVec;
-use bitvec::{array::BitArray, order::Msb0, view::BitView, BitArr};
+use bitvec::{array::BitArray, order::Msb0, slice::BitSlice, view::BitView, BitArr};
 use rand::Rng;
 
 pub const WIDTH: usize = 64;
@@ -32,12 +30,6 @@ const FONTSET: [u8; 80] = [
 ];
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub enum Event {
-    Tick,
-    Input(Input),
-}
-
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum Input {
     Up(Key),
     Down(Key),
@@ -63,18 +55,14 @@ pub struct Chip8 {
     dt: u8,
     st: u8,
     keypad: BitArr!(for 16, in u8), // 16-key keypad
-    event_tx: mpsc::Sender<Event>,
-    event_rx: mpsc::Receiver<Event>,
-    display_tx: mpsc::SyncSender<Vec<u8>>,
+    waiting_for_keypress: bool,
+    keypress_register: u8,
 }
 
 impl Chip8 {
-    pub fn new(display_tx: mpsc::SyncSender<Vec<u8>>) -> Self {
+    pub fn new() -> Self {
         let mut memory = [0; MEMORY_SIZE];
         memory[..FONTSET.len()].copy_from_slice(&FONTSET);
-
-        let (event_tx, event_rx) = mpsc::channel();
-
         Self {
             pc: START_ROM_ADDRESS as u16,
             i: 0,
@@ -86,9 +74,8 @@ impl Chip8 {
             dt: 0,
             st: 0,
             keypad: BitArray::ZERO,
-            event_tx,
-            event_rx,
-            display_tx,
+            waiting_for_keypress: false,
+            keypress_register: 0,
         }
     }
 
@@ -108,46 +95,36 @@ impl Chip8 {
         log::info!("Loaded ROM of size {} bytes", MAX_ROM_SIZE.min(rom_size));
     }
 
-    pub fn event_tx(&self) -> &mpsc::Sender<Event> {
-        &self.event_tx
-    }
-
-    fn register_input(&mut self, input: Input) {
+    pub fn register_input(&mut self, input: Input) {
         match input {
             Input::Up(key) => *self.keypad.get_mut(key as usize).unwrap() = false,
-            Input::Down(key) => *self.keypad.get_mut(key as usize).unwrap() = true,
+            Input::Down(key) => {
+                *self.keypad.get_mut(key as usize).unwrap() = true;
+                if self.waiting_for_keypress {
+                    self.v[self.keypress_register as usize] = key as u8;
+                    self.waiting_for_keypress = false;
+                }
+            }
         };
     }
 
-    pub fn run_event_loop(&mut self) {
-        loop {
-            match self.event_rx.recv() {
-                Ok(ev) => match ev {
-                    Event::Tick => {
-                        self.execute_cycle();
-                        if self.should_redraw() {
-                            match self.display_tx.send(self.display.to_bitvec().into_vec()) {
-                                Ok(_) => log::trace!("Send display data"),
-                                Err(_) => log::error!("Display channel disconnected!"),
-                            }
-                        }
-                    }
-                    Event::Input(input) => self.register_input(input),
-                },
-                Err(_) => log::error!("Event channel disconnected!"),
-            }
-        }
+    pub fn display(&self) -> &BitSlice<u8> {
+        self.display.as_bitslice()
     }
 
     pub fn execute_cycle(&mut self) {
-        let opcode = self.fetch_opcode();
-        self.execute_opcode(opcode);
+        if self.waiting_for_keypress {
+            self.should_redraw = false;
+        } else {
+            let opcode = self.fetch_opcode();
+            self.execute_opcode(opcode);
 
-        // Redraw only if the opcode is one of the display opcodes
-        self.should_redraw = opcode == 0x00E0 || opcode & 0xF000 == 0xD000;
+            // Redraw only if the opcode is one of the display opcodes
+            self.should_redraw = opcode == 0x00E0 || opcode & 0xF000 == 0xD000;
+        }
 
+        // Update timers
         self.dt = self.dt.saturating_sub(1);
-
         if self.st == 1 {
             // TODO: beep
             log::info!("Beep!")
@@ -461,24 +438,8 @@ impl Chip8 {
 
     /// Blocks until a key is pressed, then stores the result in `vx`.
     fn op_fx0a(&mut self, x: u8) {
-        loop {
-            match self.event_rx.recv() {
-                Ok(ev) => match ev {
-                    Event::Tick => (),
-                    Event::Input(input) => {
-                        self.register_input(input);
-                        match input {
-                            Input::Down(key) => {
-                                self.v[x as usize] = key as u8;
-                                break;
-                            }
-                            Input::Up(_) => (),
-                        }
-                    }
-                },
-                Err(_) => log::error!("Event channel disconnected!"),
-            }
-        }
+        self.waiting_for_keypress = true;
+        self.keypress_register = x;
         self.pc += 2;
     }
 
