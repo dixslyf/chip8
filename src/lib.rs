@@ -35,7 +35,7 @@ pub enum Input {
     Down(Key),
 }
 
-#[cfg_attr(rustfmt, rustfmt_skip)]
+#[rustfmt::skip]
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum Key {
     Key1, Key2, Key3, KeyC,
@@ -57,6 +57,12 @@ pub struct Chip8 {
     keypad: BitArr!(for 16, in u8), // 16-key keypad
     waiting_for_keypress: bool,
     keypress_register: u8,
+}
+
+impl Default for Chip8 {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Chip8 {
@@ -90,7 +96,7 @@ impl Chip8 {
             );
             self.memory[START_ROM_ADDRESS..].copy_from_slice(&rom[..MAX_ROM_SIZE]);
         } else {
-            self.memory[START_ROM_ADDRESS..(START_ROM_ADDRESS + rom_size)].copy_from_slice(&rom);
+            self.memory[START_ROM_ADDRESS..(START_ROM_ADDRESS + rom_size)].copy_from_slice(rom);
         };
         log::info!("Loaded ROM of size {} bytes", MAX_ROM_SIZE.min(rom_size));
     }
