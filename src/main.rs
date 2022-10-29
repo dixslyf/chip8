@@ -10,8 +10,6 @@ use winit::{
     window::WindowBuilder,
 };
 
-const TARGET_CLOCK_SPEED: f64 = 500.0; // Hertz
-
 struct TimeContext {
     current_time: time::Instant,
     frame_time: time::Duration,
@@ -50,6 +48,8 @@ impl TimeContext {
 struct Args {
     #[clap(parse(from_os_str))]
     rom: PathBuf,
+    #[clap(short, long, default_value_t = 500.0)]
+    frequency: f64,
 }
 
 pub fn main() {
@@ -83,7 +83,7 @@ pub fn main() {
     };
 
     log::trace!("Begin event loop");
-    let mut time_ctx = TimeContext::new(time::Duration::from_secs_f64(1.0 / TARGET_CLOCK_SPEED));
+    let mut time_ctx = TimeContext::new(time::Duration::from_secs_f64(1.0 / args.frequency));
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent { event, .. } => match event {
             WindowEvent::Resized(size) => {
