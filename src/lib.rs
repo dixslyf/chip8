@@ -35,13 +35,24 @@ pub enum Input {
     Down(Key),
 }
 
-#[rustfmt::skip]
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum Key {
-    Key1, Key2, Key3, KeyC,
-    Key4, Key5, Key6, KeyD,
-    Key7, Key8, Key9, KeyE,
-    KeyA, Key0, KeyB, KeyF
+    Key0,
+    Key1,
+    Key2,
+    Key3,
+    Key4,
+    Key5,
+    Key6,
+    Key7,
+    Key8,
+    Key9,
+    KeyA,
+    KeyB,
+    KeyC,
+    KeyD,
+    KeyE,
+    KeyF,
 }
 
 pub struct Chip8 {
