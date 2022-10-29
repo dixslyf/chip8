@@ -1,4 +1,4 @@
-use std::{fs, path::PathBuf};
+use std::{fs, path::PathBuf, time};
 
 use chip8::Chip8;
 use clap::Parser;
@@ -9,6 +9,42 @@ use winit::{
     event_loop::{ControlFlow, EventLoop},
     window::WindowBuilder,
 };
+
+const TARGET_CLOCK_SPEED: f64 = 500.0; // Hertz
+
+struct TimeContext {
+    current_time: time::Instant,
+    frame_time: time::Duration,
+    accumulator: time::Duration,
+    target_dt: time::Duration,
+}
+
+impl TimeContext {
+    pub fn new(target_dt: time::Duration) -> Self {
+        Self {
+            current_time: time::Instant::now(),
+            frame_time: time::Duration::ZERO,
+            accumulator: time::Duration::ZERO,
+            target_dt,
+        }
+    }
+
+    pub fn tick(&mut self) {
+        let new_time = time::Instant::now();
+        self.frame_time = new_time - self.current_time;
+        self.current_time = new_time;
+        self.accumulator += self.frame_time;
+    }
+
+    pub fn should_update(&mut self) -> bool {
+        if self.accumulator >= self.target_dt {
+            self.accumulator -= self.target_dt;
+            true
+        } else {
+            false
+        }
+    }
+}
 
 #[derive(Debug, Parser)]
 struct Args {
@@ -47,6 +83,7 @@ pub fn main() {
     };
 
     log::trace!("Begin event loop");
+    let mut time_ctx = TimeContext::new(time::Duration::from_secs_f64(1.0 / TARGET_CLOCK_SPEED));
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent { event, .. } => match event {
             WindowEvent::Resized(size) => {
@@ -88,9 +125,13 @@ pub fn main() {
             _ => {}
         },
         Event::MainEventsCleared => {
-            chip8.execute_cycle();
-            if chip8.should_redraw() {
-                window.request_redraw();
+            time_ctx.tick();
+
+            while time_ctx.should_update() {
+                chip8.execute_cycle();
+                if chip8.should_redraw() {
+                    window.request_redraw();
+                }
             }
         }
         Event::RedrawRequested(_) => {
@@ -143,7 +184,7 @@ fn init_logging() {
                 ));
             }
         })
-        .level(log::LevelFilter::Debug)
+        .level(log::LevelFilter::Trace)
         .level_for("wgpu_core", log::LevelFilter::Warn)
         .level_for("wgpu_hal", log::LevelFilter::Warn)
         .level_for("naga", log::LevelFilter::Warn)
