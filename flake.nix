@@ -16,6 +16,9 @@
       with pkgs; rec {
         devShell = mkShell rec {
           buildInputs = [
+            cmake
+            pkg-config
+            fontconfig
             libxkbcommon
             libGL
             vulkan-loader
