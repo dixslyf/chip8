@@ -46,9 +46,8 @@ impl TimeContext {
 
 #[derive(Debug, Parser)]
 struct Args {
-    #[clap(parse(from_os_str))]
     rom: PathBuf,
-    #[clap(short, long, default_value_t = 500.0)]
+    #[arg(short, long, default_value_t = 500.0)]
     frequency: f64,
 }
 
