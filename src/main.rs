@@ -128,24 +128,25 @@ pub fn main() {
 
             while time_ctx.should_update() {
                 chip8.execute_cycle();
+
+                // Update pixels
                 if chip8.should_redraw() {
-                    window.request_redraw();
+                    for (dpx, wpx) in chip8
+                        .display()
+                        .iter()
+                        .zip(pixels.get_frame().chunks_exact_mut(4))
+                    {
+                        let color = if *dpx {
+                            [0xff, 0xff, 0xff, 0xff]
+                        } else {
+                            [0x00, 0x00, 0x00, 0xff]
+                        };
+                        wpx.copy_from_slice(&color);
+                    }
                 }
             }
-        }
-        Event::RedrawRequested(_) => {
-            for (dpx, wpx) in chip8
-                .display()
-                .iter()
-                .zip(pixels.get_frame().chunks_exact_mut(4))
-            {
-                let color = if *dpx {
-                    [0xff, 0xff, 0xff, 0xff]
-                } else {
-                    [0x00, 0x00, 0x00, 0xff]
-                };
-                wpx.copy_from_slice(&color);
-            }
+
+            // Render
             pixels.render().unwrap();
         }
         _ => {}
