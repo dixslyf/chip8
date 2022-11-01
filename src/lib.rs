@@ -153,6 +153,10 @@ impl Chip8 {
         self.should_redraw
     }
 
+    pub fn waiting_for_keypress(&self) -> bool {
+        self.waiting_for_keypress
+    }
+
     pub fn fetch_opcode(&self) -> u16 {
         let pc = self.pc as usize;
         let op1 = self.memory[pc];

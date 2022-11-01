@@ -115,6 +115,11 @@ pub fn main() {
                     _ => return,
                 };
 
+                // Set back to polling
+                if chip8.waiting_for_keypress() {
+                    *control_flow = ControlFlow::Poll;
+                }
+
                 let input = match input.state {
                     winit::event::ElementState::Pressed => chip8::Input::Down(key),
                     winit::event::ElementState::Released => chip8::Input::Up(key),
@@ -128,6 +133,11 @@ pub fn main() {
 
             while time_ctx.should_update() {
                 chip8.execute_cycle();
+
+                // If waiting for keypress, then just wait for the next input instead of poll
+                if chip8.waiting_for_keypress() {
+                    *control_flow = ControlFlow::Wait;
+                }
 
                 // Update pixels
                 if chip8.should_redraw() {
