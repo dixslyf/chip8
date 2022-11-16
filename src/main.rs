@@ -16,6 +16,7 @@ struct TimeContext {
     frame_time: time::Duration,
     accumulator: time::Duration,
     target_dt: time::Duration,
+    paused: bool,
 }
 
 impl TimeContext {
@@ -25,24 +26,40 @@ impl TimeContext {
             frame_time: time::Duration::ZERO,
             accumulator: time::Duration::ZERO,
             target_dt,
+            paused: false,
         }
     }
 
     pub fn tick(&mut self) {
-        let new_time = time::Instant::now();
-        self.frame_time = new_time - self.current_time;
-        self.current_time = new_time;
-        self.accumulator += self.frame_time;
-        log::trace!("{:?}", self);
+        if !self.paused {
+            let new_time = time::Instant::now();
+            self.frame_time = new_time - self.current_time;
+            self.current_time = new_time;
+            self.accumulator += self.frame_time;
+            log::trace!("{:?}", self);
+        }
     }
 
     pub fn should_update(&mut self) -> bool {
-        if self.accumulator >= self.target_dt {
+        if !self.paused && self.accumulator >= self.target_dt {
             self.accumulator -= self.target_dt;
             true
         } else {
             false
         }
+    }
+
+    pub fn pause(&mut self) {
+        log::trace!("{:?}", self);
+        self.accumulator += time::Instant::now() - self.current_time;
+        self.paused = true;
+        log::trace!("{:?}", self);
+    }
+
+    pub fn unpause(&mut self) {
+        self.current_time = time::Instant::now();
+        self.paused = false;
+        log::trace!("{:?}", self);
     }
 }
 
@@ -117,8 +134,9 @@ pub fn main() {
                     _ => return,
                 };
 
-                // Set back to polling
                 if chip8.waiting_for_keypress() {
+                    time_ctx.unpause();
+                    // Set back to polling
                     *control_flow = ControlFlow::Poll;
                 }
 
@@ -136,8 +154,9 @@ pub fn main() {
             while time_ctx.should_update() {
                 chip8.execute_cycle();
 
-                // If waiting for keypress, then just wait for the next input instead of poll
                 if chip8.waiting_for_keypress() {
+                    time_ctx.pause();
+                    // If waiting for keypress, then just wait for the next input instead of poll
                     *control_flow = ControlFlow::Wait;
                 }
 
