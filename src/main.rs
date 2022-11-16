@@ -13,7 +13,6 @@ use winit::{
 #[derive(Debug)]
 struct TimeContext {
     current_time: time::Instant,
-    frame_time: time::Duration,
     accumulator: time::Duration,
     target_dt: time::Duration,
     paused: bool,
@@ -23,7 +22,6 @@ impl TimeContext {
     pub fn new(target_dt: time::Duration) -> Self {
         Self {
             current_time: time::Instant::now(),
-            frame_time: time::Duration::ZERO,
             accumulator: time::Duration::ZERO,
             target_dt,
             paused: false,
@@ -33,9 +31,8 @@ impl TimeContext {
     pub fn tick(&mut self) {
         if !self.paused {
             let new_time = time::Instant::now();
-            self.frame_time = new_time - self.current_time;
+            self.accumulator += new_time - self.current_time;
             self.current_time = new_time;
-            self.accumulator += self.frame_time;
             log::trace!("{:?}", self);
         }
     }
