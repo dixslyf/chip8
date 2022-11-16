@@ -10,6 +10,7 @@ use winit::{
     window::WindowBuilder,
 };
 
+#[derive(Debug)]
 struct TimeContext {
     current_time: time::Instant,
     frame_time: time::Duration,
@@ -32,6 +33,7 @@ impl TimeContext {
         self.frame_time = new_time - self.current_time;
         self.current_time = new_time;
         self.accumulator += self.frame_time;
+        log::trace!("{:?}", self);
     }
 
     pub fn should_update(&mut self) -> bool {

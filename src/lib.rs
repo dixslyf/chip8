@@ -120,6 +120,7 @@ impl Chip8 {
                 if self.waiting_for_keypress {
                     self.v[self.keypress_register as usize] = key as u8;
                     self.waiting_for_keypress = false;
+                    log::debug!("no longer waiting for keypress");
                 }
             }
         };
@@ -462,6 +463,7 @@ impl Chip8 {
         self.waiting_for_keypress = true;
         self.keypress_register = x;
         self.pc += 2;
+        log::debug!("waiting for keypress");
     }
 
     /// Sets the delay timer to `vx`.
