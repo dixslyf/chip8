@@ -14,3 +14,4 @@ clap = { version = "4.0.18", features = ["derive"] }
 arrayvec = "0.7.2"
 bitvec = "1.0.1"
 rand = "0.8.5"
+rodio = "0.16.0"

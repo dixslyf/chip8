@@ -69,6 +69,8 @@ struct Args {
     frequency: f64,
     #[arg(short, long, default_value_t = 60.0)]
     timers_frequency: f64,
+    #[arg(short, long, default_value_t = 440.0)]
+    sound_frequency: f32,
 }
 
 pub fn main() {
@@ -101,9 +103,21 @@ pub fn main() {
         Pixels::new(chip8::WIDTH as u32, chip8::HEIGHT as u32, surface_texture).unwrap()
     };
 
+    log::trace!("Get audio output stream handle");
+    let (_stream, stream_handle) = rodio::OutputStream::try_default().unwrap();
+    log::trace!("Initialize audio sink");
+    let sink = rodio::Sink::try_new(&stream_handle).unwrap();
+    log::trace!("Initialize sine wave source");
+    let sine_wave = rodio::source::SineWave::new(args.sound_frequency);
+    sink.append(sine_wave);
+    sink.pause();
+
     log::trace!("Begin event loop");
     let mut cpu_clock = Clock::new("cpu", time::Duration::from_secs_f64(1.0 / args.frequency));
-    let mut timers_clock = Clock::new("timers", time::Duration::from_secs_f64(1.0 / args.timers_frequency));
+    let mut timers_clock = Clock::new(
+        "timers",
+        time::Duration::from_secs_f64(1.0 / args.timers_frequency),
+    );
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent { event, .. } => match event {
             WindowEvent::Resized(size) => {
@@ -156,8 +170,12 @@ pub fn main() {
                 chip8.update_timers();
             }
 
-            if chip8.should_beep() {
-                // TODO
+            if chip8.should_beep() && sink.is_paused() {
+                sink.play();
+                log::info!("Start beep")
+            } else if !chip8.should_beep() && !sink.is_paused() {
+                sink.pause();
+                log::info!("Stop beep")
             }
 
             while cpu_clock.should_update() {

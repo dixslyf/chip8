@@ -16,6 +16,7 @@
       with pkgs; rec {
         devShell = mkShell rec {
           buildInputs = [
+            alsa-lib
             cmake
             pkg-config
             fontconfig
