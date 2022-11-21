@@ -126,6 +126,22 @@ impl Chip8 {
         };
     }
 
+    pub fn update_timers(&mut self) {
+        if self.dt > 0 {
+            self.dt -= 1;
+            log::debug!("Delay timer decremented to {}", self.dt);
+        }
+
+        if self.st > 0 {
+            self.st -= 1;
+            log::debug!("Sound timer decremented to {}", self.st);
+        }
+    }
+
+    pub fn should_beep(&self) -> bool {
+        self.st >= 2  // The COSMAC VIP manual states that min value must be 2
+    }
+
     pub fn display(&self) -> &BitSlice<u8> {
         self.display.as_bitslice()
     }
@@ -140,14 +156,6 @@ impl Chip8 {
             // Redraw only if the opcode is one of the display opcodes
             self.should_redraw = opcode == 0x00E0 || opcode & 0xF000 == 0xD000;
         }
-
-        // Update timers
-        self.dt = self.dt.saturating_sub(1);
-        if self.st == 1 {
-            // TODO: beep
-            log::info!("Beep!")
-        }
-        self.st = self.st.saturating_sub(1);
     }
 
     pub fn should_redraw(&self) -> bool {
@@ -469,12 +477,14 @@ impl Chip8 {
     /// Sets the delay timer to `vx`.
     fn op_fx15(&mut self, x: u8) {
         self.dt = self.v[x as usize];
+        log::debug!("Delay timer set to {}", self.dt);
         self.pc += 2;
     }
 
     /// Sets the sound timer to `vx`.
     fn op_fx18(&mut self, x: u8) {
         self.st = self.v[x as usize];
+        log::debug!("Sound timer set to {}", self.st);
         self.pc += 2;
     }
 
