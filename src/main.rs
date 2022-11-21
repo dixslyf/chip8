@@ -138,8 +138,6 @@ pub fn main() {
 
                 if chip8.waiting_for_keypress() {
                     cpu_clock.unpause();
-                    // Set back to polling
-                    *control_flow = ControlFlow::Poll;
                 }
 
                 let input = match input.state {
@@ -167,8 +165,6 @@ pub fn main() {
 
                 if chip8.waiting_for_keypress() {
                     cpu_clock.pause();
-                    // If waiting for keypress, then just wait for the next input instead of poll
-                    *control_flow = ControlFlow::Wait;
                 }
 
                 // Update pixels
