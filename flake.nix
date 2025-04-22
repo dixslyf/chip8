@@ -10,35 +10,45 @@
     };
   };
 
-  outputs = {
-    self,
-    nixpkgs,
-    flake-utils,
-    rust-overlay,
-    ...
-  }:
-    flake-utils.lib.eachDefaultSystem (system: let
-      overlays = [(import rust-overlay)];
-      pkgs = import nixpkgs {inherit system overlays;};
-    in
-      with pkgs; rec {
-        devShell = mkShell rec {
-          nativeBuildInputs = [rust-bin.stable.latest.default];
-          buildInputs = [
-            alsa-lib
-            cmake
-            pkg-config
-            fontconfig
-            libxkbcommon
-            libGL
-            vulkan-loader
-            wayland
-            xorg.libXcursor
-            xorg.libXrandr
-            xorg.libXi
-            xorg.libX11
+  outputs =
+    {
+      nixpkgs,
+      flake-utils,
+      rust-overlay,
+      ...
+    }:
+    flake-utils.lib.eachDefaultSystem (
+      system:
+      let
+        overlays = [ (import rust-overlay) ];
+        pkgs = import nixpkgs { inherit system overlays; };
+        inherit (pkgs) lib;
+
+        buildInputs = with pkgs; [
+          alsa-lib
+          cmake
+          pkg-config
+          fontconfig
+          libxkbcommon
+          libGL
+          vulkan-loader
+          wayland
+          xorg.libXcursor
+          xorg.libXrandr
+          xorg.libXi
+          xorg.libX11
+        ];
+      in
+      {
+        devShell = pkgs.mkShell {
+          nativeBuildInputs = [
+            pkgs.rust-bin.stable.latest.default
           ];
+
+          inherit buildInputs;
+
           LD_LIBRARY_PATH = "${lib.makeLibraryPath buildInputs}";
         };
-      });
+      }
+    );
 }
