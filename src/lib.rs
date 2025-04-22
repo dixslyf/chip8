@@ -310,18 +310,21 @@ impl Chip8 {
     /// Sets `vx` to the bitwise OR of `vx` and `vy`.
     fn op_8xy1(&mut self, x: u8, y: u8) {
         self.v[x as usize] |= self.v[y as usize];
+        self.v[0xF] = 0; // Quirk: CHIP-8 resets the flag register.
         self.pc += 2;
     }
 
     /// Sets `vx` to the bitwise AND of `vx` and `vy`.
     fn op_8xy2(&mut self, x: u8, y: u8) {
         self.v[x as usize] &= self.v[y as usize];
+        self.v[0xF] = 0; // Quirk: CHIP-8 resets the flag register.
         self.pc += 2;
     }
 
     /// Sets `vx` to the XOR of `vx` and `vy`.
     fn op_8xy3(&mut self, x: u8, y: u8) {
         self.v[x as usize] ^= self.v[y as usize];
+        self.v[0xF] = 0; // Quirk: CHIP-8 resets the flag register.
         self.pc += 2;
     }
 
