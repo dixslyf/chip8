@@ -364,8 +364,12 @@ impl Chip8 {
     /// Sets `vx` to `vy` shifted left by one bit. `vf` is set to the most significant bit of `vy`
     /// prior to the shift.
     fn op_8xye(&mut self, x: u8, y: u8) {
-        self.v[0xF] = self.v[y as usize] & 0b1000_0000;
-        self.v[x as usize] = self.v[y as usize] << 1;
+        // It is possible that 0xF is passsed as x or y, so
+        // we store the old value of y in a separate variable
+        // and mutate vF last.
+        let old_vy = self.v[y as usize];
+        self.v[x as usize] = old_vy << 1;
+        self.v[0xF] = old_vy >> 7;
         self.pc += 2;
     }
 
