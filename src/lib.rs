@@ -114,13 +114,17 @@ impl Chip8 {
 
     pub fn register_input(&mut self, input: Input) {
         match input {
-            Input::Up(key) => *self.keypad.get_mut(key as usize).unwrap() = false,
+            Input::Up(key) => {
+                *self.keypad.get_mut(key as usize).unwrap() = false;
+                if self.waiting_for_keypress {
+                    self.waiting_for_keypress = false;
+                    log::debug!("No longer waiting for keypress");
+                }
+            }
             Input::Down(key) => {
                 *self.keypad.get_mut(key as usize).unwrap() = true;
                 if self.waiting_for_keypress {
                     self.v[self.keypress_register as usize] = key as u8;
-                    self.waiting_for_keypress = false;
-                    log::debug!("no longer waiting for keypress");
                 }
             }
         };
@@ -139,7 +143,7 @@ impl Chip8 {
     }
 
     pub fn should_beep(&self) -> bool {
-        self.st >= 2  // The COSMAC VIP manual states that min value must be 2
+        self.st >= 2 // The COSMAC VIP manual states that min value must be 2
     }
 
     pub fn display(&self) -> &BitSlice<u8> {
