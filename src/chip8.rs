@@ -135,12 +135,12 @@ impl Chip8 {
     pub fn update_timers(&mut self) {
         if self.dt > 0 {
             self.dt -= 1;
-            log::debug!("Delay timer decremented to {}", self.dt);
+            log::trace!("Delay timer decremented to {}", self.dt);
         }
 
         if self.st > 0 {
             self.st -= 1;
-            log::debug!("Sound timer decremented to {}", self.st);
+            log::trace!("Sound timer decremented to {}", self.st);
         }
     }
 
@@ -488,20 +488,20 @@ impl Chip8 {
         self.waiting_for_keypress = true;
         self.keypress_register = x;
         self.pc += 2;
-        log::debug!("waiting for keypress");
+        log::debug!("Waiting for keypress");
     }
 
     /// Sets the delay timer to `vx`.
     fn op_fx15(&mut self, x: u8) {
         self.dt = self.v[x as usize];
-        log::debug!("Delay timer set to {}", self.dt);
+        log::trace!("Delay timer set to {}", self.dt);
         self.pc += 2;
     }
 
     /// Sets the sound timer to `vx`.
     fn op_fx18(&mut self, x: u8) {
         self.st = self.v[x as usize];
-        log::debug!("Sound timer set to {}", self.st);
+        log::trace!("Sound timer set to {}", self.st);
         self.pc += 2;
     }
 

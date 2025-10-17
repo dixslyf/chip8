@@ -59,14 +59,12 @@ impl App {
         let mut chip8 = Chip8::new();
         chip8.load(rom);
 
-        log::trace!("Initialize audio sink");
+        log::debug!("Initializing audio sink");
         let audio_sink = rodio::Sink::connect_new(mixer);
-        log::trace!("Initialize sine wave source");
         let sine_wave = rodio::source::SineWave::new(sound_freq);
         audio_sink.append(sine_wave);
         audio_sink.pause();
 
-        log::trace!("Begin event loop");
         let cpu_clock = Clock::new("cpu", time::Duration::from_secs_f64(1.0 / cpu_freq));
         let timers_clock = Clock::new("timers", time::Duration::from_secs_f64(1.0 / timers_freq));
 
@@ -83,6 +81,7 @@ impl App {
 
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
+        log::debug!("Creating window");
         let window = {
             let min_size =
                 LogicalSize::new(chip8::DISPLAY_WIDTH as f64, chip8::DISPLAY_HEIGHT as f64);
@@ -98,7 +97,7 @@ impl ApplicationHandler for App {
         };
         self.window = Some(window.clone());
 
-        log::trace!("Initialize pixel buffer");
+        log::debug!("Initializing pixel buffer");
         let pixels = {
             let window_size = window.inner_size();
             let surface_texture =
@@ -121,7 +120,7 @@ impl ApplicationHandler for App {
     ) {
         match event {
             WindowEvent::Resized(size) => {
-                log::debug!("Resize window and surface");
+                log::debug!("Received window resize request");
                 if let Err(err) = self
                     .pixels
                     .as_mut()
@@ -133,12 +132,12 @@ impl ApplicationHandler for App {
                 }
 
                 if let Err(err) = self.pixels.as_ref().unwrap().render() {
-                    log::error!("Failed to render: {}", err);
+                    log::error!("Failed to render pixels: {}", err);
                     event_loop.exit();
                 }
             }
             WindowEvent::CloseRequested => {
-                log::trace!("Close requested");
+                log::debug!("Received window close request");
                 event_loop.exit();
             }
             WindowEvent::RedrawRequested => {
@@ -151,10 +150,10 @@ impl ApplicationHandler for App {
 
                 if self.chip8.should_beep() && self.audio_sink.is_paused() {
                     self.audio_sink.play();
-                    log::info!("Start beep")
+                    log::debug!("Start beep")
                 } else if !self.chip8.should_beep() && !self.audio_sink.is_paused() {
                     self.audio_sink.pause();
-                    log::info!("Stop beep")
+                    log::debug!("Stop beep")
                 }
 
                 while self.cpu_clock.should_update() {
@@ -186,13 +185,13 @@ impl ApplicationHandler for App {
                 match self.pixels.as_ref().unwrap().render() {
                     Ok(_) => self.window.as_ref().unwrap().request_redraw(),
                     Err(err) => {
-                        log::error!("Failed to render: {}", err);
+                        log::error!("Failed to render pixels: {}", err);
                         event_loop.exit();
                     }
                 }
             }
             WindowEvent::KeyboardInput { event, .. } => {
-                log::trace!("{:?}", event);
+                log::debug!("Received keyboard input event: {:?}", event);
                 let key = match event.logical_key {
                     Key::Character(s) => match s.as_ref() {
                         "1" => chip8::Key::Key1,
@@ -235,14 +234,16 @@ pub fn main() -> Result<(), EventLoopError> {
     let args = Args::parse();
     init_logging(args.log_level);
 
+    log::debug!("Reading ROM from filesystem");
     let rom = fs::read(args.rom).unwrap();
-    log::trace!("Initialize event loop");
+
+    log::debug!("Initializing event loop");
     let event_loop = EventLoop::new()?;
 
-    log::trace!("Get audio output stream handle");
+    log::debug!("Initializing audio output stream handle");
     let stream_handle = rodio::OutputStreamBuilder::open_default_stream().unwrap();
 
-    log::trace!("Initialize application");
+    log::debug!("Initializing application");
     let mut app = App::new(
         &rom,
         args.cpu_frequency,

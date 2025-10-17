@@ -25,7 +25,7 @@ impl Clock {
             let new_time = time::Instant::now();
             self.accumulator += new_time - self.current_time;
             self.current_time = new_time;
-            log::trace!("{:?}", self);
+            log::trace!("Clock tick ({}): {:?}", self.label, self);
         }
     }
 
@@ -39,15 +39,14 @@ impl Clock {
     }
 
     pub fn pause(&mut self) {
-        log::trace!("{:?}", self);
         self.accumulator += time::Instant::now() - self.current_time;
         self.paused = true;
-        log::trace!("{:?}", self);
+        log::debug!("Clock paused ({}): {:?}", self.label, self);
     }
 
     pub fn unpause(&mut self) {
         self.current_time = time::Instant::now();
         self.paused = false;
-        log::trace!("{:?}", self);
+        log::debug!("Clock unpaused ({}): {:?}", self.label, self);
     }
 }
