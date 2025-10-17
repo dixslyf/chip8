@@ -457,8 +457,8 @@ impl Chip8 {
     ///
     /// If the x-coordinate `v[x]` is outside the range of the display, then it is reduced modulo
     /// `64`, the width of the display. Likewise, for the y-coordinate `v[y]`, it will be reduced
-    /// modulo `32`, the height of the display. However, sprites that are drawn partially offscreen
-    /// are clipped rather than wrapped.
+    /// modulo `32`, the height of the display. Whether sprites that are drawn partially offscreen
+    /// should be clipped or wrapped depends on whether the draw-wrap quirk is enabled.
     ///
     /// If any of the displayed pixels are flipped from set to unset, then the carry flag `v[0xF]`
     /// is set to `1`. Otherwise, it is set to `0`. This occurs if and only if both the sprite
