@@ -2,6 +2,9 @@
 name = "chip8"
 version = "0.1.0"
 edition = "2021"
+description = "A CHIP-8 interpreter written in Rust"
+license = "MIT"
+repository = "https://github.com/dixslyf/chip8"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
