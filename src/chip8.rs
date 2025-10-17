@@ -252,18 +252,26 @@ impl Chip8 {
         }
     }
 
+    fn increment_pc(&mut self) {
+        self.increment_pc_by(1);
+    }
+
+    fn increment_pc_by(&mut self, count: u16) {
+        self.pc += count * 2;
+    }
+
     /// Calls the machine code routine at address `nnn`.
     /// This opcode is unimplemented. Programs that use this opcode are written specifically for
     /// the hardware that the CHIP-8 interpreter is running on.
     fn op_0nnn(&mut self, _nnn: u16) {
         log::warn!("Opcode 0NNN is unimplemented.");
-        self.pc += 2;
+        self.increment_pc();
     }
 
     /// Clears the display.
     fn op_00e0(&mut self) {
         self.display.fill(false);
-        self.pc += 2;
+        self.increment_pc();
     }
 
     /// Returns from a subroutine.
@@ -288,46 +296,46 @@ impl Chip8 {
     /// Skips the next instruction if `vx` equals `kk`.
     fn op_3xnn(&mut self, x: u8, kk: u8) {
         if self.v[x as usize] == kk {
-            self.pc += 4;
+            self.increment_pc_by(2);
         } else {
-            self.pc += 2;
+            self.increment_pc();
         }
     }
 
     /// Skips the next instruction if `vx` does not equal `kk`.
     fn op_4xnn(&mut self, x: u8, kk: u8) {
         if self.v[x as usize] != kk {
-            self.pc += 4;
+            self.increment_pc_by(2);
         } else {
-            self.pc += 2;
+            self.increment_pc();
         }
     }
 
     /// Skips the next instruction if `vx` equals `vy`.
     fn op_5xy0(&mut self, x: u8, y: u8) {
         if self.v[x as usize] == self.v[y as usize] {
-            self.pc += 4;
+            self.increment_pc_by(2);
         } else {
-            self.pc += 2;
+            self.increment_pc();
         }
     }
 
     /// Sets `vx` to `kk`.
     fn op_6xnn(&mut self, x: u8, kk: u8) {
         self.v[x as usize] = kk;
-        self.pc += 2;
+        self.increment_pc();
     }
 
     /// Adds `kk` to `vx`.
     fn op_7xnn(&mut self, x: u8, kk: u8) {
         self.v[x as usize] = self.v[x as usize].wrapping_add(kk);
-        self.pc += 2;
+        self.increment_pc();
     }
 
     /// Sets `vx` to `vy`.
     fn op_8xy0(&mut self, x: u8, y: u8) {
         self.v[x as usize] = self.v[y as usize];
-        self.pc += 2;
+        self.increment_pc();
     }
 
     /// Sets `vx` to the bitwise OR of `vx` and `vy`.
@@ -339,7 +347,7 @@ impl Chip8 {
             self.v[0xF] = 0;
         }
 
-        self.pc += 2;
+        self.increment_pc();
     }
 
     /// Sets `vx` to the bitwise AND of `vx` and `vy`.
@@ -351,7 +359,7 @@ impl Chip8 {
             self.v[0xF] = 0;
         }
 
-        self.pc += 2;
+        self.increment_pc();
     }
 
     /// Sets `vx` to the XOR of `vx` and `vy`.
@@ -363,7 +371,7 @@ impl Chip8 {
             self.v[0xF] = 0;
         }
 
-        self.pc += 2;
+        self.increment_pc();
     }
 
     /// Adds `vy` to `vx`. `vf` is set to `1` if a carry occurs, and `0` if not.
@@ -371,7 +379,7 @@ impl Chip8 {
         let (sum, carry) = self.v[x as usize].overflowing_add(self.v[y as usize]);
         self.v[x as usize] = sum;
         self.v[0xF] = carry as u8;
-        self.pc += 2;
+        self.increment_pc();
     }
 
     /// Subtracts `vy` from `vx`. `vf` is set to `0` if a borrow occurs, and `1` if not.
@@ -379,7 +387,7 @@ impl Chip8 {
         let (diff, borrow) = self.v[x as usize].overflowing_sub(self.v[y as usize]);
         self.v[x as usize] = diff;
         self.v[0xF] = !borrow as u8;
-        self.pc += 2;
+        self.increment_pc();
     }
 
     /// Sets `vx` to `vy` shifted right by one bit. `vf` is set to the least significant bit of `vy`
@@ -391,7 +399,7 @@ impl Chip8 {
         let old_vy = self.v[y as usize];
         self.v[x as usize] = old_vy >> 1;
         self.v[0xF] = old_vy & 0x1;
-        self.pc += 2;
+        self.increment_pc();
     }
 
     /// Sets `vx` to `vy - vx`. `vf` is set to `0` if a borrow occurs, and `1` if not.
@@ -399,7 +407,7 @@ impl Chip8 {
         let (diff, borrow) = self.v[y as usize].overflowing_sub(self.v[x as usize]);
         self.v[x as usize] = diff;
         self.v[0xF] = !borrow as u8;
-        self.pc += 2;
+        self.increment_pc();
     }
 
     /// Sets `vx` to `vy` shifted left by one bit. `vf` is set to the most significant bit of `vy`
@@ -411,22 +419,22 @@ impl Chip8 {
         let old_vy = self.v[y as usize];
         self.v[x as usize] = old_vy << 1;
         self.v[0xF] = old_vy >> 7;
-        self.pc += 2;
+        self.increment_pc();
     }
 
     /// Skips the next instruction if `vx` does not equal `vy`.
     fn op_9xy0(&mut self, x: u8, y: u8) {
         if self.v[x as usize] != self.v[y as usize] {
-            self.pc += 4;
+            self.increment_pc_by(2);
         } else {
-            self.pc += 2;
+            self.increment_pc();
         }
     }
 
     /// Sets the address register `i` to `nnn`.
     fn op_annn(&mut self, nnn: u16) {
         self.i = nnn;
-        self.pc += 2;
+        self.increment_pc();
     }
 
     /// Jumps to address `nnn + v0`.
@@ -438,7 +446,7 @@ impl Chip8 {
     /// Sets `vx` to the bitwise AND of a random number and `kk`.
     fn op_cxnn(&mut self, x: u8, kk: u8) {
         self.v[x as usize] = rand::rng().random::<u8>() & kk;
-        self.pc += 2;
+        self.increment_pc();
     }
 
     /// Draws a sprite at coordinates (`v[x], `v[y]`) with a width of 8 pixels and a height of `n`
@@ -507,16 +515,16 @@ impl Chip8 {
                 *dpx ^= *spx;
             }
         }
-        self.pc += 2;
+        self.increment_pc();
     }
 
     /// Skips the next instruction if the key stored in `vx` is pressed.
     fn op_ex9e(&mut self, x: u8) {
         let vx = self.v[x as usize];
         if self.keypad[vx as usize] {
-            self.pc += 4;
+            self.increment_pc_by(2);
         } else {
-            self.pc += 2;
+            self.increment_pc();
         }
     }
 
@@ -524,23 +532,23 @@ impl Chip8 {
     fn op_exa1(&mut self, x: u8) {
         let vx = self.v[x as usize];
         if !self.keypad[vx as usize] {
-            self.pc += 4;
+            self.increment_pc_by(2);
         } else {
-            self.pc += 2;
+            self.increment_pc();
         }
     }
 
     /// Sets `vx` to the current value of the delay timer.
     fn op_fx07(&mut self, x: u8) {
         self.v[x as usize] = self.dt;
-        self.pc += 2;
+        self.increment_pc();
     }
 
     /// Blocks until a key is pressed, then stores the result in `vx`.
     fn op_fx0a(&mut self, x: u8) {
         self.waiting_for_keypress = true;
         self.keypress_register = x;
-        self.pc += 2;
+        self.increment_pc();
         log::debug!("Waiting for keypress");
     }
 
@@ -548,20 +556,20 @@ impl Chip8 {
     fn op_fx15(&mut self, x: u8) {
         self.dt = self.v[x as usize];
         log::trace!("Delay timer set to {}", self.dt);
-        self.pc += 2;
+        self.increment_pc();
     }
 
     /// Sets the sound timer to `vx`.
     fn op_fx18(&mut self, x: u8) {
         self.st = self.v[x as usize];
         log::trace!("Sound timer set to {}", self.st);
-        self.pc += 2;
+        self.increment_pc();
     }
 
     /// Adds `vx` to the address register `i`.
     fn op_fx1e(&mut self, x: u8) {
         self.i = self.i.wrapping_add(self.v[x as usize] as u16);
-        self.pc += 2;
+        self.increment_pc();
     }
 
     /// Sets the address register `i` to the memory address of the sprite for the hexadecimal
@@ -570,7 +578,7 @@ impl Chip8 {
         // The fontset is loaded at address 0 in ascending order,
         // and each digit is represented by a sprite which takes up 5 bytes.
         self.i = (self.v[x as usize] * 5) as u16;
-        self.pc += 2;
+        self.increment_pc();
     }
 
     /// Stores the binary-coded decimal equivalent of `vx` at addresses `i`, `i + 1` and `i + 2`.
@@ -578,7 +586,7 @@ impl Chip8 {
         self.memory[self.i as usize] = self.v[x as usize] / 100;
         self.memory[(self.i + 1) as usize] = (self.v[x as usize] % 100) / 10;
         self.memory[(self.i + 2) as usize] = self.v[x as usize] % 10;
-        self.pc += 2;
+        self.increment_pc();
     }
 
     /// Stores the values of `v0` to `vx` (inclusive) in memory, starting from the address in `i`. `i` is set to `i + x + 1`.
@@ -586,7 +594,7 @@ impl Chip8 {
         self.memory[self.i as usize..=self.i as usize + x as usize]
             .copy_from_slice(&self.v[..=x as usize]);
         self.i = self.i + x as u16 + 1;
-        self.pc += 2;
+        self.increment_pc();
     }
 
     /// Fills `v0` to `vx` (inclusive) with the values stored in memory, starting from the address
@@ -595,7 +603,7 @@ impl Chip8 {
         self.v[..=x as usize]
             .copy_from_slice(&self.memory[self.i as usize..=self.i as usize + x as usize]);
         self.i = self.i + x as u16 + 1;
-        self.pc += 2;
+        self.increment_pc();
     }
 }
 
