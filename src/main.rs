@@ -23,19 +23,36 @@ enum LogLevel {
 }
 
 #[derive(Debug, Parser)]
+#[command(about = "A CHIP-8 emulator written in Rust.", version)]
 struct Args {
+    #[arg(help = "Path to the CHIP-8 ROM to load")]
     rom: PathBuf,
 
-    #[arg(short, long, default_value_t = 500.0)]
+    #[arg(
+        short,
+        long,
+        default_value_t = 500.0,
+        help = "The CPU clock speed in hertz (instructions per second)"
+    )]
     cpu_frequency: f64,
 
-    #[arg(short, long, default_value_t = 60.0)]
+    #[arg(
+        short,
+        long,
+        default_value_t = 60.0,
+        help = "Timers frequency in hertz"
+    )]
     timers_frequency: f64,
 
-    #[arg(short, long, default_value_t = 440.0)]
+    #[arg(
+        short,
+        long,
+        default_value_t = 440.0,
+        help = "Sound output frequency in hertz (controls the pitch of the \"beep\" tone)"
+    )]
     sound_frequency: f32,
 
-    #[arg(long, default_value = "info", value_enum)]
+    #[arg(long, default_value = "info", value_enum, help = "Log verbosity level")]
     log_level: LogLevel,
 
     // Ref: https://github.com/clap-rs/clap/issues/1649#issuecomment-2144879038
@@ -46,6 +63,7 @@ struct Args {
         default_missing_value = "true",
         num_args = 0..=1,
         require_equals = false,
+        help = "Enable/disable the draw-wrap quirk",
     )]
     quirk_draw_wrap: bool,
 
@@ -56,6 +74,7 @@ struct Args {
         default_missing_value = "false",
         num_args = 0..=1,
         require_equals = false,
+        help = "Enable/disable the VF reset quirk",
     )]
     quirk_vf_reset: bool,
 }
