@@ -7,10 +7,11 @@ pub const HEIGHT: usize = 32;
 
 const REGISTER_COUNT: usize = 16;
 const STACK_SIZE: usize = 16;
+const FONTSET_SIZE: usize = 80;
 const MEMORY_SIZE: usize = 4096;
 const START_ROM_ADDRESS: usize = 0x200;
 const MAX_ROM_SIZE: usize = MEMORY_SIZE - START_ROM_ADDRESS;
-const FONTSET: [u8; 80] = [
+const FONTSET: [u8; FONTSET_SIZE] = [
     0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
     0x20, 0x60, 0x20, 0x20, 0x70, // 1
     0xF0, 0x10, 0xF0, 0x80, 0xF0, // 2
@@ -55,7 +56,7 @@ pub enum Key {
     KeyF,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Chip8 {
     pc: u16,                                     // 12-bit program counter
     i: u16,                                      // 12-bit address register
@@ -542,5 +543,630 @@ impl Chip8 {
             .copy_from_slice(&self.memory[self.i as usize..=self.i as usize + x as usize]);
         self.i = self.i + x as u16 + 1;
         self.pc += 2;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    prop_compose! {
+        /// Generates a Chip8 with random state.
+        fn arb_chip8()
+                    (
+                        pc_offset_half in 0u16..=((0xFFE - 4 - START_ROM_ADDRESS as u16) / 2), // -4 to give some leeway for increments.
+                                                                                               // Divide the max by 2 so that
+                                                                                               // we can multiply by 2 to only
+                                                                                               // generate even offsets.
+                        i in 0u16..=0xFFF,
+                        v in proptest::collection::vec(any::<u8>(), REGISTER_COUNT),
+                        stack in proptest::collection::vec(any::<u16>(), 0..(STACK_SIZE - 1)), // -1 to give some leeway for pushes.
+                        memory in proptest::collection::vec(any::<u8>(), MEMORY_SIZE - FONTSET_SIZE),
+                        display_bools in proptest::collection::vec(any::<bool>(), WIDTH * HEIGHT),
+                        should_redraw in any::<bool>(),
+                        dt in any::<u8>(),
+                        st in any::<u8>(),
+                        keypad_bools in proptest::collection::vec(any::<bool>(), 16),
+                        // waiting_for_keypress in any::<bool>(),
+                        keypress_register in any::<u8>(),
+                    )
+                    -> Chip8
+        {
+            let mut chip8 = Chip8::new();
+            chip8.pc += pc_offset_half * 2;
+            chip8.i = i;
+            chip8.v.copy_from_slice(&v);
+            chip8.stack.extend(stack.into_iter());
+            chip8.memory[FONTSET_SIZE..].copy_from_slice(&memory); // Be careful not to replace the
+                                                                   // fontset.
+            for (i, bit) in display_bools.into_iter().enumerate() {
+                chip8.display.set(i, bit);
+            }
+            chip8.should_redraw = should_redraw;
+            chip8.dt = dt;
+            chip8.st = st;
+            for (i, bit) in keypad_bools.into_iter().enumerate() {
+                chip8.keypad.set(i, bit);
+            }
+            // chip8.waiting_for_keypress = waiting_for_keypress;
+            chip8.keypress_register = keypress_register;
+
+            chip8
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn test_0nnn_increments_pc(
+            mut chip8 in arb_chip8(),
+            nnn in 0u16..=0xFFF,
+        ) {
+            let old_pc = chip8.pc;
+            chip8.op_0nnn(nnn);
+            assert_eq!(chip8.pc, old_pc + 2);
+        }
+
+        #[test]
+        fn test_00e0_increments_pc(mut chip8 in arb_chip8()) {
+            let old_pc = chip8.pc;
+            chip8.op_00e0();
+            assert_eq!(chip8.pc, old_pc + 2);
+        }
+
+        #[test]
+        fn test_00e0_clears_display(mut chip8 in arb_chip8()) {
+            chip8.op_00e0();
+            assert!(chip8.display.not_any());
+        }
+
+        #[test]
+        fn test_00e0_display_idempotence(mut chip8 in arb_chip8()) {
+            chip8.op_00e0();
+            assert!(chip8.display.not_any());
+            chip8.op_00e0();
+            assert!(chip8.display.not_any());
+        }
+
+        #[test]
+        fn test_1nnn_jumping_to_pc_should_leave_pc_unchanged(
+            mut chip8 in arb_chip8(),
+        ) {
+            let old_pc = chip8.pc;
+            chip8.op_1nnn(chip8.pc);
+            prop_assert_eq!(chip8.pc, old_pc);
+        }
+
+        #[test]
+        fn test_1nnn_two_jumps_behaves_like_one_jump_to_second_address(
+            mut chip8 in arb_chip8(),
+            nnn1 in 0u16..=0xFFF,
+            nnn2 in 0u16..=0xFFF,
+        ) {
+            chip8.op_1nnn(nnn1);
+            chip8.op_1nnn(nnn2);
+            prop_assert_eq!(chip8.pc, nnn2);
+        }
+
+        #[test]
+        fn test_1nnn_idempotence(
+            mut chip8 in arb_chip8(),
+            nnn in 0u16..=0xFFF,
+        ) {
+            chip8.op_1nnn(nnn);
+            prop_assert_eq!(chip8.pc, nnn);
+            chip8.op_1nnn(nnn);
+            prop_assert_eq!(chip8.pc, nnn);
+        }
+
+        #[test]
+        fn test_2nnn_pushes_incremented_pc_to_stack(
+            mut chip8 in arb_chip8(),
+            nnn in 0u16..=0xFFF,
+        ) {
+            let old_pc = chip8.pc;
+            let old_stack_len = chip8.stack.len();
+
+            chip8.op_2nnn(nnn);
+
+            prop_assert_eq!(chip8.stack.len(), old_stack_len + 1);
+            prop_assert_eq!(*chip8.stack.last().unwrap(), old_pc + 2);
+        }
+
+        // With this test, we don't have to re-implement the same tests we have for 1nnn.
+        #[test]
+        fn test_2nnn_sets_pc_like_1nnn(
+            mut chip8 in arb_chip8(),
+            nnn in 0u16..=0xFFF,
+        ) {
+            let mut chip8_1nnn = chip8.clone();
+            chip8_1nnn.op_1nnn(nnn);
+
+            chip8.op_2nnn(nnn);
+
+            prop_assert_eq!(chip8.pc, chip8_1nnn.pc);
+        }
+
+        #[test]
+        fn test_3xnn_skips_next_instruction_when_vx_eq_kk(
+            mut chip8 in arb_chip8(),
+            x in 0u8..(REGISTER_COUNT as u8),
+            kk in any::<u8>(),
+        ) {
+            chip8.v[x as usize] = kk;
+            let old_pc = chip8.pc;
+
+            chip8.op_3xnn(x, kk);
+
+            // Next instruction skipped, so pc should have moved by 4.
+            prop_assert_eq!(chip8.pc - old_pc, 4);
+        }
+
+        #[test]
+        fn test_3xnn_does_not_skip_next_instruction_when_vx_neq_kk(
+            mut chip8 in arb_chip8(),
+            x in 0u8..(REGISTER_COUNT as u8),
+            kk in any::<u8>(),
+        ) {
+            // If the generated value for vx happens to be kk,
+            // add 1 so that it's different.
+            if chip8.v[x as usize] == kk {
+                chip8.v[x as usize] = kk.wrapping_add(1);
+            }
+            let old_pc = chip8.pc;
+
+            chip8.op_3xnn(x, kk);
+
+            prop_assert_eq!(chip8.pc - old_pc, 2);
+        }
+
+        #[test]
+        fn test_4xnn_does_not_skip_next_instruction_when_vx_eq_kk(
+            mut chip8 in arb_chip8(),
+            x in 0u8..(REGISTER_COUNT as u8),
+            kk in any::<u8>(),
+        ) {
+            chip8.v[x as usize] = kk;
+            let old_pc = chip8.pc;
+
+            chip8.op_4xnn(x, kk);
+
+            prop_assert_eq!(chip8.pc - old_pc, 2);
+        }
+
+        #[test]
+        fn test_4xnn_skips_next_instruction_when_vx_neq_kk(
+            mut chip8 in arb_chip8(),
+            x in 0u8..(REGISTER_COUNT as u8),
+            kk in any::<u8>(),
+        ) {
+            // If the generated value for vx happens to be kk,
+            // add 1 so that it's different.
+            if chip8.v[x as usize] == kk {
+                chip8.v[x as usize] = kk.wrapping_add(1);
+            }
+            let old_pc = chip8.pc;
+
+            chip8.op_4xnn(x, kk);
+
+            // Next instruction skipped, so pc should have moved by 4.
+            prop_assert_eq!(chip8.pc - old_pc, 4);
+        }
+
+        #[test]
+        fn test_only_one_of_3xnn_and_4xnn_should_skip(
+            mut chip8_3xnn in arb_chip8(),
+            x in 0u8..(REGISTER_COUNT as u8),
+            kk in any::<u8>(),
+        ) {
+            let mut chip8_4xnn = chip8_3xnn.clone();
+
+            let pc = chip8_3xnn.pc;
+
+            chip8_3xnn.op_3xnn(x, kk);
+            chip8_4xnn.op_4xnn(x, kk);
+
+            let delta_3xnn = chip8_3xnn.pc - pc;
+            let delta_4xnn = chip8_4xnn.pc - pc;
+
+            prop_assert!([delta_3xnn, delta_4xnn].contains(&2));
+            prop_assert!([delta_3xnn, delta_4xnn].contains(&4));
+            prop_assert_ne!(delta_3xnn, delta_4xnn);
+        }
+
+        #[test]
+        fn test_5xy0_skips_next_instruction_when_vx_eq_vy(
+            mut chip8 in arb_chip8(),
+            x in 0u8..(REGISTER_COUNT as u8), // Note that we explicitly allow x == y
+            y in 0u8..(REGISTER_COUNT as u8),
+        ) {
+            chip8.v[x as usize] = chip8.v[y as usize];
+            let old_pc = chip8.pc;
+
+            chip8.op_5xy0(x, y);
+
+            // Next instruction skipped, so pc should have moved by 4.
+            prop_assert_eq!(chip8.pc - old_pc, 4);
+        }
+
+        #[test]
+        fn test_5xy0_does_not_skip_next_instruction_when_vx_neq_vy(
+            mut chip8 in arb_chip8(),
+            (x, y) in (0u8..(REGISTER_COUNT as u8), 0u8..(REGISTER_COUNT as u8)).prop_filter(
+                "x and y must be different",
+                |(x, y)| x != y,
+            ),
+        ) {
+            // If the generated value for vx happens to be the same as vy,
+            // add 1 so that it's different.
+            if chip8.v[x as usize] == chip8.v[y as usize] {
+                chip8.v[x as usize] = chip8.v[y as usize].wrapping_add(1);
+            }
+            let old_pc = chip8.pc;
+
+            chip8.op_5xy0(x, y);
+
+            prop_assert_eq!(chip8.pc - old_pc, 2);
+        }
+
+        #[test]
+        fn test_6xnn_increments_pc(
+            mut chip8 in arb_chip8(),
+            x in 0u8..(REGISTER_COUNT as u8),
+            kk in any::<u8>(),
+        ) {
+            let old_pc = chip8.pc;
+            chip8.op_6xnn(x, kk);
+            prop_assert_eq!(chip8.pc, old_pc + 2);
+        }
+
+        #[test]
+        fn test_6xnn_two_calls_sets_vx_to_kk_arg_of_second_call(
+            mut chip8 in arb_chip8(),
+            x in 0u8..(REGISTER_COUNT as u8),
+            kk1 in any::<u8>(),
+            kk2 in any::<u8>(),
+        ) {
+            chip8.op_6xnn(x, kk1);
+            chip8.op_6xnn(x, kk2);
+            prop_assert_eq!(chip8.v[x as usize], kk2);
+        }
+
+        #[test]
+        fn test_6xnn_vx_idempotence(
+            mut chip8 in arb_chip8(),
+            x in 0u8..(REGISTER_COUNT as u8),
+            kk in any::<u8>(),
+        ) {
+            chip8.op_6xnn(x, kk);
+            prop_assert_eq!(chip8.v[x as usize], kk);
+            chip8.op_6xnn(x, kk);
+            prop_assert_eq!(chip8.v[x as usize], kk);
+        }
+
+        #[test]
+        fn test_7xnn_increments_pc(
+            mut chip8 in arb_chip8(),
+            x in 0u8..(REGISTER_COUNT as u8),
+            kk in any::<u8>(),
+        ) {
+            let old_pc = chip8.pc;
+            chip8.op_7xnn(x, kk);
+            prop_assert_eq!(chip8.pc, old_pc + 2);
+        }
+
+        #[test]
+        fn test_7xnn_adding_0_leaves_vx_unchanged(
+            mut chip8 in arb_chip8(),
+            x in 0u8..(REGISTER_COUNT as u8),
+        ) {
+            let old_vx = chip8.v[x as usize];
+            chip8.op_7xnn(x, 0);
+            prop_assert_eq!(chip8.v[x as usize], old_vx);
+        }
+
+        // Wrapping behaviour.
+        #[test]
+        fn test_7xnn_adding_256_leaves_vx_unchanged(
+            mut chip8 in arb_chip8(),
+            x in 0u8..(REGISTER_COUNT as u8),
+        ) {
+            let old_vx = chip8.v[x as usize];
+            chip8.op_7xnn(x, u8::MAX);
+            chip8.op_7xnn(x, 1);
+            prop_assert_eq!(chip8.v[x as usize], old_vx);
+        }
+
+        #[test]
+        fn test_7xnn_adding_two_numbers_should_be_equivalent_to_adding_their_sum(
+            mut chip8 in arb_chip8(),
+            x in 0u8..(REGISTER_COUNT as u8),
+            kk1 in any::<u8>(),
+            kk2 in any::<u8>(),
+        ) {
+            let mut chip8_sum = chip8.clone();
+            let kk_sum = kk1.wrapping_add(kk2);
+
+            chip8.op_7xnn(x, kk1);
+            chip8.op_7xnn(x, kk2);
+
+            chip8_sum.op_7xnn(x, kk_sum);
+
+            prop_assert_eq!(chip8_sum.v[x as usize], chip8.v[x as usize]);
+        }
+
+        #[test]
+        fn test_8xy0_increments_pc(
+            mut chip8 in arb_chip8(),
+            x in 0u8..(REGISTER_COUNT as u8),
+            y in 0u8..(REGISTER_COUNT as u8),
+        ) {
+            let old_pc = chip8.pc;
+            chip8.op_8xy0(x, y);
+            prop_assert_eq!(chip8.pc, old_pc + 2);
+        }
+
+        #[test]
+        fn test_8xy0_two_calls_sets_vx_to_vy_arg_of_second_call(
+            mut chip8 in arb_chip8(),
+            x in 0u8..(REGISTER_COUNT as u8),
+            y1 in 0u8..(REGISTER_COUNT as u8),
+            y2 in 0u8..(REGISTER_COUNT as u8),
+        ) {
+            chip8.op_8xy0(x, y1);
+            chip8.op_8xy0(x, y2);
+            prop_assert_eq!(chip8.v[x as usize], chip8.v[y2 as usize]);
+        }
+
+        #[test]
+        fn test_8xy0_x_as_second_arg_leaves_vx_unchanged(
+            mut chip8 in arb_chip8(),
+            x in 0u8..(REGISTER_COUNT as u8),
+        ) {
+            let old_vx = chip8.v[x as usize];
+            chip8.op_8xy0(x, x);
+            prop_assert_eq!(chip8.v[x as usize], old_vx);
+        }
+
+        #[test]
+        fn test_8xy0_vx_idempotence(
+            mut chip8 in arb_chip8(),
+            x in 0u8..(REGISTER_COUNT as u8),
+            y in 0u8..(REGISTER_COUNT as u8),
+        ) {
+            chip8.op_8xy0(x, y);
+            prop_assert_eq!(chip8.v[x as usize], chip8.v[y as usize]);
+            chip8.op_8xy0(x, y);
+            prop_assert_eq!(chip8.v[x as usize], chip8.v[y as usize]);
+        }
+
+        #[test]
+        fn test_8xy1_increments_pc(
+            mut chip8 in arb_chip8(),
+            x in 0u8..(REGISTER_COUNT as u8),
+            y in 0u8..(REGISTER_COUNT as u8),
+        ) {
+            let old_pc = chip8.pc;
+            chip8.op_8xy1(x, y);
+            prop_assert_eq!(chip8.pc, old_pc + 2);
+        }
+
+        #[test]
+        fn test_8xy1_commutative(
+            mut chip8_x in arb_chip8(),
+            // Because 8xy1 sets the flags register (0xF) to 0,
+            // we need to exclude 0xF from this test.
+            x in 0u8..((REGISTER_COUNT - 1) as u8),
+            y in 0u8..((REGISTER_COUNT - 1) as u8),
+        ) {
+            let mut chip8_y = chip8_x.clone();
+
+            chip8_x.op_8xy1(x, y);
+            chip8_y.op_8xy1(y, x);
+
+            prop_assert_eq!(chip8_x.v[x as usize], chip8_y.v[y as usize]);
+        }
+
+        #[test]
+        fn test_8xy1_monotonicity(
+            mut chip8 in arb_chip8(),
+            // Because 8xy1 sets the flags register (0xF) to 0,
+            // we need to exclude 0xF from this test.
+            x in 0u8..((REGISTER_COUNT - 1) as u8),
+            y in 0u8..((REGISTER_COUNT - 1) as u8),
+        ) {
+            let old_vx = chip8.v[x as usize];
+            chip8.op_8xy1(x, y);
+            prop_assert_eq!(chip8.v[x as usize] & old_vx, old_vx);
+            prop_assert_eq!(chip8.v[x as usize] & chip8.v[y as usize], chip8.v[y as usize]);
+        }
+
+        #[test]
+        fn test_8xy1_resets_flags_register(
+            mut chip8 in arb_chip8(),
+            x in 0u8..(REGISTER_COUNT as u8),
+            y in 0u8..(REGISTER_COUNT as u8),
+        ) {
+            chip8.op_8xy1(x, y);
+            prop_assert_eq!(chip8.v[0xF], 0);
+        }
+
+        #[test]
+        fn test_8xy1_x_as_second_arg_leaves_vx_unchanged(
+            mut chip8 in arb_chip8(),
+            x in 0u8..((REGISTER_COUNT - 1) as u8),
+        ) {
+            let old_vx = chip8.v[x as usize];
+            chip8.op_8xy1(x, x);
+            prop_assert_eq!(chip8.v[x as usize], old_vx);
+        }
+
+        #[test]
+        fn test_8xy1_idempotence(
+            mut chip8 in arb_chip8(),
+            x in 0u8..(REGISTER_COUNT as u8),
+            y in 0u8..(REGISTER_COUNT as u8),
+        ) {
+            chip8.op_8xy1(x, y);
+            let vx1 = chip8.v[x as usize];
+            chip8.op_8xy1(x, y);
+            let vx2 = chip8.v[x as usize];
+            prop_assert_eq!(vx1, vx2);
+        }
+
+        #[test]
+        fn test_8xy2_increments_pc(
+            mut chip8 in arb_chip8(),
+            x in 0u8..(REGISTER_COUNT as u8),
+            y in 0u8..(REGISTER_COUNT as u8),
+        ) {
+            let old_pc = chip8.pc;
+            chip8.op_8xy2(x, y);
+            prop_assert_eq!(chip8.pc, old_pc + 2);
+        }
+
+        #[test]
+        fn test_8xy2_commutative(
+            mut chip8_x in arb_chip8(),
+            // Because 8xy2 sets the flags register (0xF) to 0,
+            // we need to exclude 0xF from this test.
+            x in 0u8..((REGISTER_COUNT - 1) as u8),
+            y in 0u8..((REGISTER_COUNT - 1) as u8),
+        ) {
+            let mut chip8_y = chip8_x.clone();
+
+            chip8_x.op_8xy2(x, y);
+            chip8_y.op_8xy2(y, x);
+
+            prop_assert_eq!(chip8_x.v[x as usize], chip8_y.v[y as usize]);
+        }
+
+        #[test]
+        fn test_8xy2_monotonicity(
+            mut chip8 in arb_chip8(),
+            // Because 8xy2 sets the flags register (0xF) to 0,
+            // we need to exclude 0xF from this test.
+            x in 0u8..((REGISTER_COUNT - 1) as u8),
+            y in 0u8..((REGISTER_COUNT - 1) as u8),
+        ) {
+            let old_vx = chip8.v[x as usize];
+            chip8.op_8xy2(x, y);
+            prop_assert_eq!(chip8.v[x as usize] | old_vx, old_vx);
+            prop_assert_eq!(chip8.v[x as usize] | chip8.v[y as usize], chip8.v[y as usize]);
+        }
+
+        #[test]
+        fn test_8xy2_resets_flags_register(
+            mut chip8 in arb_chip8(),
+            x in 0u8..(REGISTER_COUNT as u8),
+            y in 0u8..(REGISTER_COUNT as u8),
+        ) {
+            chip8.op_8xy2(x, y);
+            prop_assert_eq!(chip8.v[0xF], 0);
+        }
+
+        #[test]
+        fn test_8xy2_x_as_second_arg_leaves_vx_unchanged(
+            mut chip8 in arb_chip8(),
+            x in 0u8..((REGISTER_COUNT - 1) as u8),
+        ) {
+            let old_vx = chip8.v[x as usize];
+            chip8.op_8xy2(x, x);
+            prop_assert_eq!(chip8.v[x as usize], old_vx);
+        }
+
+        #[test]
+        fn test_8xy2_idempotence(
+            mut chip8 in arb_chip8(),
+            x in 0u8..(REGISTER_COUNT as u8),
+            y in 0u8..((REGISTER_COUNT - 1) as u8),
+        ) {
+            chip8.op_8xy2(x, y);
+            let vx1 = chip8.v[x as usize];
+            chip8.op_8xy2(x, y);
+            let vx2 = chip8.v[x as usize];
+            prop_assert_eq!(vx1, vx2);
+        }
+
+        #[test]
+        fn test_8xy3_increments_pc(
+            mut chip8 in arb_chip8(),
+            x in 0u8..(REGISTER_COUNT as u8),
+            y in 0u8..(REGISTER_COUNT as u8),
+        ) {
+            let old_pc = chip8.pc;
+            chip8.op_8xy3(x, y);
+            prop_assert_eq!(chip8.pc, old_pc + 2);
+        }
+
+        #[test]
+        fn test_8xy3_commutative(
+            mut chip8_x in arb_chip8(),
+            // Because 8xy3 sets the flags register (0xF) to 0,
+            // we need to exclude 0xF from this test.
+            x in 0u8..((REGISTER_COUNT - 1) as u8),
+            y in 0u8..((REGISTER_COUNT - 1) as u8),
+        ) {
+            let mut chip8_y = chip8_x.clone();
+
+            chip8_x.op_8xy3(x, y);
+            chip8_y.op_8xy3(y, x);
+
+            prop_assert_eq!(chip8_x.v[x as usize], chip8_y.v[y as usize]);
+        }
+
+        // XOR is its own inverse.
+        #[test]
+        fn test_8xy3_involution(
+            mut chip8 in arb_chip8(),
+            // Because 8xy3 sets the flags register (0xF) to 0,
+            // we need to exclude 0xF from this test.
+            x in 0u8..((REGISTER_COUNT - 1) as u8),
+            y in 0u8..((REGISTER_COUNT - 1) as u8),
+        ) {
+            prop_assume!(x != y);
+
+            let old_vx = chip8.v[x as usize];
+
+            chip8.op_8xy3(x, y);
+            chip8.op_8xy3(x, y);
+
+            prop_assert_eq!(chip8.v[x as usize], old_vx);
+        }
+
+        #[test]
+        fn test_8xy3_with_0_leaves_vx_unchanged(
+            mut chip8 in arb_chip8(),
+            // Because 8xy3 sets the flags register (0xF) to 0,
+            // we need to exclude 0xF from this test.
+            x in 0u8..((REGISTER_COUNT - 1) as u8),
+            y in 0u8..(REGISTER_COUNT as u8),
+        ) {
+            chip8.v[y as usize] = 0;
+            let old_vx = chip8.v[x as usize];
+
+            chip8.op_8xy3(x, y);
+
+            prop_assert_eq!(chip8.v[x as usize], old_vx);
+        }
+
+        #[test]
+        fn test_8xy3_resets_flags_register(
+            mut chip8 in arb_chip8(),
+            x in 0u8..(REGISTER_COUNT as u8),
+            y in 0u8..(REGISTER_COUNT as u8),
+        ) {
+            chip8.op_8xy3(x, y);
+            prop_assert_eq!(chip8.v[0xF], 0);
+        }
+
+        #[test]
+        fn test_8xy3_x_as_second_arg_sets_vx_to_0(
+            mut chip8 in arb_chip8(),
+            x in 0u8..((REGISTER_COUNT - 1) as u8),
+        ) {
+            chip8.op_8xy3(x, x);
+            prop_assert_eq!(chip8.v[x as usize], 0);
+        }
     }
 }
