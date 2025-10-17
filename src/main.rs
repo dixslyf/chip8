@@ -1,6 +1,6 @@
 use std::{fs, path::PathBuf, sync::Arc, time};
 
-use chip8::Chip8;
+use chip8::{Chip8, Clock};
 use clap::Parser;
 use pixels::{Pixels, SurfaceTexture};
 use winit::{
@@ -69,9 +69,12 @@ impl App {
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
         let window = {
-            let min_size = LogicalSize::new(chip8::WIDTH as f64, chip8::HEIGHT as f64);
-            let scaled_size =
-                LogicalSize::new(chip8::WIDTH as f64 * 3.0, chip8::HEIGHT as f64 * 3.0);
+            let min_size =
+                LogicalSize::new(chip8::DISPLAY_WIDTH as f64, chip8::DISPLAY_HEIGHT as f64);
+            let scaled_size = LogicalSize::new(
+                chip8::DISPLAY_WIDTH as f64 * 3.0,
+                chip8::DISPLAY_HEIGHT as f64 * 3.0,
+            );
             let win_attrs = Window::default_attributes()
                 .with_title("CHIP-8 Emulator")
                 .with_inner_size(scaled_size)
@@ -85,7 +88,12 @@ impl ApplicationHandler for App {
             let window_size = window.inner_size();
             let surface_texture =
                 SurfaceTexture::new(window_size.width, window_size.height, window.clone());
-            Pixels::new(chip8::WIDTH as u32, chip8::HEIGHT as u32, surface_texture).unwrap()
+            Pixels::new(
+                chip8::DISPLAY_WIDTH as u32,
+                chip8::DISPLAY_HEIGHT as u32,
+                surface_texture,
+            )
+            .unwrap()
         };
         self.pixels = Some(pixels);
     }
@@ -205,58 +213,6 @@ impl ApplicationHandler for App {
             }
             _ => {}
         }
-    }
-}
-
-#[derive(Debug)]
-struct Clock {
-    label: &'static str,
-    current_time: time::Instant,
-    accumulator: time::Duration,
-    target_dt: time::Duration,
-    paused: bool,
-}
-
-impl Clock {
-    pub fn new(label: &'static str, target_dt: time::Duration) -> Self {
-        Self {
-            label,
-            current_time: time::Instant::now(),
-            accumulator: time::Duration::ZERO,
-            target_dt,
-            paused: false,
-        }
-    }
-
-    pub fn tick(&mut self) {
-        if !self.paused {
-            let new_time = time::Instant::now();
-            self.accumulator += new_time - self.current_time;
-            self.current_time = new_time;
-            log::trace!("{:?}", self);
-        }
-    }
-
-    pub fn should_update(&mut self) -> bool {
-        if !self.paused && self.accumulator >= self.target_dt {
-            self.accumulator -= self.target_dt;
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn pause(&mut self) {
-        log::trace!("{:?}", self);
-        self.accumulator += time::Instant::now() - self.current_time;
-        self.paused = true;
-        log::trace!("{:?}", self);
-    }
-
-    pub fn unpause(&mut self) {
-        self.current_time = time::Instant::now();
-        self.paused = false;
-        log::trace!("{:?}", self);
     }
 }
 
