@@ -1,7 +1,7 @@
 use std::{fs, path::PathBuf, sync::Arc, time};
 
 use chip8::{Chip8, Clock};
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use pixels::{Pixels, SurfaceTexture};
 use winit::{
     application::ApplicationHandler,
@@ -13,15 +13,30 @@ use winit::{
     window::Window,
 };
 
+#[derive(Debug, ValueEnum, Copy, Clone)]
+enum LogLevel {
+    Error,
+    Warn,
+    Info,
+    Debug,
+    Trace,
+}
+
 #[derive(Debug, Parser)]
 struct Args {
     rom: PathBuf,
+
     #[arg(short, long, default_value_t = 500.0)]
     cpu_frequency: f64,
+
     #[arg(short, long, default_value_t = 60.0)]
     timers_frequency: f64,
+
     #[arg(short, long, default_value_t = 440.0)]
     sound_frequency: f32,
+
+    #[arg(long, default_value = "info", value_enum)]
+    log_level: LogLevel,
 }
 
 struct App {
@@ -217,8 +232,8 @@ impl ApplicationHandler for App {
 }
 
 pub fn main() -> Result<(), EventLoopError> {
-    init_logging();
     let args = Args::parse();
+    init_logging(args.log_level);
 
     let rom = fs::read(args.rom).unwrap();
     log::trace!("Initialize event loop");
@@ -238,7 +253,15 @@ pub fn main() -> Result<(), EventLoopError> {
     event_loop.run_app(&mut app)
 }
 
-fn init_logging() {
+fn init_logging(log_level: LogLevel) {
+    let level_filter = match log_level {
+        LogLevel::Error => log::LevelFilter::Error,
+        LogLevel::Warn => log::LevelFilter::Warn,
+        LogLevel::Info => log::LevelFilter::Info,
+        LogLevel::Debug => log::LevelFilter::Debug,
+        LogLevel::Trace => log::LevelFilter::Trace,
+    };
+
     let color_config = fern::colors::ColoredLevelConfig::new()
         .info(fern::colors::Color::Green)
         .debug(fern::colors::Color::Magenta)
@@ -269,7 +292,8 @@ fn init_logging() {
                 ));
             }
         })
-        .level(log::LevelFilter::Trace)
+        .level(level_filter)
+        // These are too noisy.
         .level_for("wgpu_core", log::LevelFilter::Warn)
         .level_for("wgpu_hal", log::LevelFilter::Warn)
         .level_for("naga", log::LevelFilter::Warn)
