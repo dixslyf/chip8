@@ -23,7 +23,7 @@ enum LogLevel {
 }
 
 #[derive(Debug, Parser)]
-#[command(about = "A CHIP-8 emulator written in Rust.", version)]
+#[command(about = "A CHIP-8 interpreter written in Rust.", version)]
 struct Args {
     #[arg(help = "Path to the CHIP-8 ROM to load")]
     rom: PathBuf,
@@ -134,7 +134,7 @@ impl ApplicationHandler for App {
                 chip8::DISPLAY_HEIGHT as f64 * 3.0,
             );
             let win_attrs = Window::default_attributes()
-                .with_title("CHIP-8 Emulator")
+                .with_title("CHIP-8 Interpreter")
                 .with_inner_size(scaled_size)
                 .with_min_inner_size(min_size);
             Arc::new(event_loop.create_window(win_attrs).unwrap())
@@ -287,7 +287,7 @@ pub fn main() -> Result<(), EventLoopError> {
     log::debug!("Reading ROM from filesystem");
     let rom = fs::read(args.rom).unwrap();
 
-    log::debug!("Initializing core emulator");
+    log::debug!("Initializing core interpreter");
     let mut chip8 = Chip8::new(Quirks {
         draw_wrap: args.quirk_draw_wrap,
         vf_reset: args.quirk_vf_reset,
