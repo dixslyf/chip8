@@ -55,6 +55,7 @@ pub enum Key {
     KeyF,
 }
 
+#[derive(Debug)]
 pub struct Chip8 {
     pc: u16,                                     // 12-bit program counter
     i: u16,                                      // 12-bit address register
@@ -403,7 +404,7 @@ impl Chip8 {
 
     /// Sets `vx` to the bitwise AND of a random number and `kk`.
     fn op_cxnn(&mut self, x: u8, kk: u8) {
-        self.v[x as usize] = rand::thread_rng().gen::<u8>() & kk;
+        self.v[x as usize] = rand::rng().random::<u8>() & kk;
         self.pc += 2;
     }
 

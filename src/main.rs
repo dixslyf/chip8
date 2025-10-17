@@ -1,14 +1,212 @@
-use std::{fs, path::PathBuf, time};
+use std::{fs, path::PathBuf, sync::Arc, time};
 
 use chip8::Chip8;
 use clap::Parser;
 use pixels::{Pixels, SurfaceTexture};
 use winit::{
+    application::ApplicationHandler,
     dpi::LogicalSize,
-    event::{Event, WindowEvent},
-    event_loop::{ControlFlow, EventLoop},
-    window::WindowBuilder,
+    error::EventLoopError,
+    event::{ElementState, WindowEvent},
+    event_loop::EventLoop,
+    keyboard::Key,
+    window::Window,
 };
+
+#[derive(Debug, Parser)]
+struct Args {
+    rom: PathBuf,
+    #[arg(short, long, default_value_t = 500.0)]
+    cpu_frequency: f64,
+    #[arg(short, long, default_value_t = 60.0)]
+    timers_frequency: f64,
+    #[arg(short, long, default_value_t = 440.0)]
+    sound_frequency: f32,
+}
+
+struct App {
+    chip8: Chip8,
+    cpu_clock: Clock,
+    timers_clock: Clock,
+    audio_sink: rodio::Sink,
+    window: Option<Arc<Window>>,
+    pixels: Option<Pixels<'static>>,
+}
+
+impl App {
+    pub fn new(
+        rom: &[u8],
+        cpu_freq: f64,
+        timers_freq: f64,
+        sound_freq: f32,
+        mixer: &rodio::mixer::Mixer,
+    ) -> Self {
+        let mut chip8 = Chip8::new();
+        chip8.load(rom);
+
+        log::trace!("Initialize audio sink");
+        let audio_sink = rodio::Sink::connect_new(mixer);
+        log::trace!("Initialize sine wave source");
+        let sine_wave = rodio::source::SineWave::new(sound_freq);
+        audio_sink.append(sine_wave);
+        audio_sink.pause();
+
+        log::trace!("Begin event loop");
+        let cpu_clock = Clock::new("cpu", time::Duration::from_secs_f64(1.0 / cpu_freq));
+        let timers_clock = Clock::new("timers", time::Duration::from_secs_f64(1.0 / timers_freq));
+
+        Self {
+            chip8,
+            cpu_clock,
+            timers_clock,
+            audio_sink,
+            window: None,
+            pixels: None,
+        }
+    }
+}
+
+impl ApplicationHandler for App {
+    fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
+        let window = {
+            let min_size = LogicalSize::new(chip8::WIDTH as f64, chip8::HEIGHT as f64);
+            let scaled_size =
+                LogicalSize::new(chip8::WIDTH as f64 * 3.0, chip8::HEIGHT as f64 * 3.0);
+            let win_attrs = Window::default_attributes()
+                .with_title("CHIP-8 Emulator")
+                .with_inner_size(scaled_size)
+                .with_min_inner_size(min_size);
+            Arc::new(event_loop.create_window(win_attrs).unwrap())
+        };
+        self.window = Some(window.clone());
+
+        log::trace!("Initialize pixel buffer");
+        let pixels = {
+            let window_size = window.inner_size();
+            let surface_texture =
+                SurfaceTexture::new(window_size.width, window_size.height, window.clone());
+            Pixels::new(chip8::WIDTH as u32, chip8::HEIGHT as u32, surface_texture).unwrap()
+        };
+        self.pixels = Some(pixels);
+    }
+
+    fn window_event(
+        &mut self,
+        event_loop: &winit::event_loop::ActiveEventLoop,
+        _window_id: winit::window::WindowId,
+        event: WindowEvent,
+    ) {
+        match event {
+            WindowEvent::Resized(size) => {
+                log::debug!("Resize window and surface");
+                if let Err(err) = self
+                    .pixels
+                    .as_mut()
+                    .unwrap()
+                    .resize_surface(size.width, size.height)
+                {
+                    log::error!("Failed to resize surface: {}", err);
+                    event_loop.exit();
+                }
+
+                if let Err(err) = self.pixels.as_ref().unwrap().render() {
+                    log::error!("Failed to render: {}", err);
+                    event_loop.exit();
+                }
+            }
+            WindowEvent::CloseRequested => {
+                log::trace!("Close requested");
+                event_loop.exit();
+            }
+            WindowEvent::RedrawRequested => {
+                self.timers_clock.tick();
+                self.cpu_clock.tick();
+
+                while self.timers_clock.should_update() {
+                    self.chip8.update_timers();
+                }
+
+                if self.chip8.should_beep() && self.audio_sink.is_paused() {
+                    self.audio_sink.play();
+                    log::info!("Start beep")
+                } else if !self.chip8.should_beep() && !self.audio_sink.is_paused() {
+                    self.audio_sink.pause();
+                    log::info!("Stop beep")
+                }
+
+                while self.cpu_clock.should_update() {
+                    self.chip8.execute_cycle();
+
+                    if self.chip8.waiting_for_keypress() {
+                        self.cpu_clock.pause();
+                    }
+
+                    // Update pixels
+                    if self.chip8.should_redraw() {
+                        for (dpx, wpx) in self.chip8.display().iter().zip(
+                            self.pixels
+                                .as_mut()
+                                .unwrap()
+                                .frame_mut()
+                                .chunks_exact_mut(4),
+                        ) {
+                            let color = if *dpx {
+                                [0xff, 0xff, 0xff, 0xff]
+                            } else {
+                                [0x00, 0x00, 0x00, 0xff]
+                            };
+                            wpx.copy_from_slice(&color);
+                        }
+                    }
+                }
+
+                match self.pixels.as_ref().unwrap().render() {
+                    Ok(_) => self.window.as_ref().unwrap().request_redraw(),
+                    Err(err) => {
+                        log::error!("Failed to render: {}", err);
+                        event_loop.exit();
+                    }
+                }
+            }
+            WindowEvent::KeyboardInput { event, .. } => {
+                log::trace!("{:?}", event);
+                let key = match event.logical_key {
+                    Key::Character(s) => match s.as_ref() {
+                        "1" => chip8::Key::Key1,
+                        "2" => chip8::Key::Key2,
+                        "3" => chip8::Key::Key3,
+                        "4" => chip8::Key::KeyC,
+                        "q" => chip8::Key::Key4,
+                        "w" => chip8::Key::Key5,
+                        "e" => chip8::Key::Key6,
+                        "r" => chip8::Key::KeyD,
+                        "a" => chip8::Key::Key7,
+                        "s" => chip8::Key::Key8,
+                        "d" => chip8::Key::Key9,
+                        "f" => chip8::Key::KeyE,
+                        "z" => chip8::Key::KeyA,
+                        "x" => chip8::Key::Key0,
+                        "c" => chip8::Key::KeyB,
+                        "v" => chip8::Key::KeyF,
+                        _ => return,
+                    },
+                    _ => return,
+                };
+
+                if self.chip8.waiting_for_keypress() {
+                    self.cpu_clock.unpause();
+                }
+
+                let input = match event.state {
+                    ElementState::Pressed => chip8::Input::Down(key),
+                    ElementState::Released => chip8::Input::Up(key),
+                };
+                self.chip8.register_input(input);
+            }
+            _ => {}
+        }
+    }
+}
 
 #[derive(Debug)]
 struct Clock {
@@ -62,151 +260,26 @@ impl Clock {
     }
 }
 
-#[derive(Debug, Parser)]
-struct Args {
-    rom: PathBuf,
-    #[arg(short, long, default_value_t = 500.0)]
-    frequency: f64,
-    #[arg(short, long, default_value_t = 60.0)]
-    timers_frequency: f64,
-    #[arg(short, long, default_value_t = 440.0)]
-    sound_frequency: f32,
-}
-
-pub fn main() {
+pub fn main() -> Result<(), EventLoopError> {
     init_logging();
     let args = Args::parse();
 
     let rom = fs::read(args.rom).unwrap();
-    let mut chip8 = Chip8::new();
-    chip8.load(&rom);
-
     log::trace!("Initialize event loop");
-    let event_loop = EventLoop::new();
-
-    log::trace!("Initialize winit window");
-    let window = {
-        let min_size = LogicalSize::new(chip8::WIDTH as f64, chip8::HEIGHT as f64);
-        let scaled_size = LogicalSize::new(chip8::WIDTH as f64 * 3.0, chip8::HEIGHT as f64 * 3.0);
-        WindowBuilder::new()
-            .with_title("CHIP-8 Emulator")
-            .with_inner_size(scaled_size)
-            .with_min_inner_size(min_size)
-            .build(&event_loop)
-            .unwrap()
-    };
-
-    log::trace!("Initialize pixel buffer");
-    let mut pixels = {
-        let window_size = window.inner_size();
-        let surface_texture = SurfaceTexture::new(window_size.width, window_size.height, &window);
-        Pixels::new(chip8::WIDTH as u32, chip8::HEIGHT as u32, surface_texture).unwrap()
-    };
+    let event_loop = EventLoop::new()?;
 
     log::trace!("Get audio output stream handle");
-    let (_stream, stream_handle) = rodio::OutputStream::try_default().unwrap();
-    log::trace!("Initialize audio sink");
-    let sink = rodio::Sink::try_new(&stream_handle).unwrap();
-    log::trace!("Initialize sine wave source");
-    let sine_wave = rodio::source::SineWave::new(args.sound_frequency);
-    sink.append(sine_wave);
-    sink.pause();
+    let stream_handle = rodio::OutputStreamBuilder::open_default_stream().unwrap();
 
-    log::trace!("Begin event loop");
-    let mut cpu_clock = Clock::new("cpu", time::Duration::from_secs_f64(1.0 / args.frequency));
-    let mut timers_clock = Clock::new(
-        "timers",
-        time::Duration::from_secs_f64(1.0 / args.timers_frequency),
+    log::trace!("Initialize application");
+    let mut app = App::new(
+        &rom,
+        args.cpu_frequency,
+        args.timers_frequency,
+        args.sound_frequency,
+        stream_handle.mixer(),
     );
-    event_loop.run(move |event, _, control_flow| match event {
-        Event::WindowEvent { event, .. } => match event {
-            WindowEvent::Resized(size) => {
-                log::debug!("Resize window and surface");
-                pixels.resize_surface(size.width, size.height);
-                pixels.render().unwrap();
-            }
-            WindowEvent::CloseRequested => {
-                log::trace!("Close requested");
-                *control_flow = ControlFlow::Exit
-            }
-            WindowEvent::KeyboardInput { input, .. } => {
-                let key = match input.scancode {
-                    2 => chip8::Key::Key1,  // 1
-                    3 => chip8::Key::Key2,  // 2
-                    4 => chip8::Key::Key3,  // 3
-                    5 => chip8::Key::KeyC,  // 4
-                    16 => chip8::Key::Key4, // Q
-                    17 => chip8::Key::Key5, // W
-                    18 => chip8::Key::Key6, // E
-                    19 => chip8::Key::KeyD, // R
-                    30 => chip8::Key::Key7, // A
-                    31 => chip8::Key::Key8, // S
-                    32 => chip8::Key::Key9, // D
-                    33 => chip8::Key::KeyE, // F
-                    44 => chip8::Key::KeyA, // Z
-                    45 => chip8::Key::Key0, // X
-                    46 => chip8::Key::KeyB, // C
-                    47 => chip8::Key::KeyF, // V
-                    _ => return,
-                };
-
-                if chip8.waiting_for_keypress() {
-                    cpu_clock.unpause();
-                }
-
-                let input = match input.state {
-                    winit::event::ElementState::Pressed => chip8::Input::Down(key),
-                    winit::event::ElementState::Released => chip8::Input::Up(key),
-                };
-                chip8.register_input(input);
-            }
-            _ => {}
-        },
-        Event::MainEventsCleared => {
-            timers_clock.tick();
-            cpu_clock.tick();
-
-            while timers_clock.should_update() {
-                chip8.update_timers();
-            }
-
-            if chip8.should_beep() && sink.is_paused() {
-                sink.play();
-                log::info!("Start beep")
-            } else if !chip8.should_beep() && !sink.is_paused() {
-                sink.pause();
-                log::info!("Stop beep")
-            }
-
-            while cpu_clock.should_update() {
-                chip8.execute_cycle();
-
-                if chip8.waiting_for_keypress() {
-                    cpu_clock.pause();
-                }
-
-                // Update pixels
-                if chip8.should_redraw() {
-                    for (dpx, wpx) in chip8
-                        .display()
-                        .iter()
-                        .zip(pixels.get_frame().chunks_exact_mut(4))
-                    {
-                        let color = if *dpx {
-                            [0xff, 0xff, 0xff, 0xff]
-                        } else {
-                            [0x00, 0x00, 0x00, 0xff]
-                        };
-                        wpx.copy_from_slice(&color);
-                    }
-                }
-            }
-
-            // Render
-            pixels.render().unwrap();
-        }
-        _ => {}
-    });
+    event_loop.run_app(&mut app)
 }
 
 fn init_logging() {
@@ -245,6 +318,7 @@ fn init_logging() {
         .level_for("wgpu_hal", log::LevelFilter::Warn)
         .level_for("naga", log::LevelFilter::Warn)
         .level_for("mio", log::LevelFilter::Warn)
+        .level_for("calloop", log::LevelFilter::Warn)
         .chain(std::io::stderr())
         .apply()
         .unwrap();
