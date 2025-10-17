@@ -1,6 +1,6 @@
 use std::{fs, path::PathBuf, sync::Arc, time};
 
-use chip8::{Chip8, Clock};
+use chip8::{Chip8, Clock, Quirks};
 use clap::{Parser, ValueEnum};
 use pixels::{Pixels, SurfaceTexture};
 use winit::{
@@ -37,6 +37,9 @@ struct Args {
 
     #[arg(long, default_value = "info", value_enum)]
     log_level: LogLevel,
+
+    #[arg(long)]
+    quirk_vf_reset: bool,
 }
 
 struct App {
@@ -50,15 +53,12 @@ struct App {
 
 impl App {
     pub fn new(
-        rom: &[u8],
+        chip8: Chip8,
         cpu_freq: f64,
         timers_freq: f64,
         sound_freq: f32,
         mixer: &rodio::mixer::Mixer,
     ) -> Self {
-        let mut chip8 = Chip8::new();
-        chip8.load(rom);
-
         log::debug!("Initializing audio sink");
         let audio_sink = rodio::Sink::connect_new(mixer);
         let sine_wave = rodio::source::SineWave::new(sound_freq);
@@ -234,18 +234,24 @@ pub fn main() -> Result<(), EventLoopError> {
     let args = Args::parse();
     init_logging(args.log_level);
 
-    log::debug!("Reading ROM from filesystem");
-    let rom = fs::read(args.rom).unwrap();
-
     log::debug!("Initializing event loop");
     let event_loop = EventLoop::new()?;
 
     log::debug!("Initializing audio output stream handle");
     let stream_handle = rodio::OutputStreamBuilder::open_default_stream().unwrap();
 
+    log::debug!("Reading ROM from filesystem");
+    let rom = fs::read(args.rom).unwrap();
+
+    log::debug!("Initializing core emulator");
+    let mut chip8 = Chip8::new(Quirks {
+        vf_reset: args.quirk_vf_reset,
+    });
+    chip8.load(&rom);
+
     log::debug!("Initializing application");
     let mut app = App::new(
-        &rom,
+        chip8,
         args.cpu_frequency,
         args.timers_frequency,
         args.sound_frequency,

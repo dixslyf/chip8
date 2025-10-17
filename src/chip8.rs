@@ -56,6 +56,17 @@ pub enum Key {
     KeyF,
 }
 
+#[derive(Debug, Copy, Clone)]
+pub struct Quirks {
+    pub vf_reset: bool,
+}
+
+impl Default for Quirks {
+    fn default() -> Self {
+        Self { vf_reset: false }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Chip8 {
     pc: u16,                                                     // 12-bit program counter
@@ -70,16 +81,17 @@ pub struct Chip8 {
     keypad: BitArr!(for 16, in u8), // 16-key keypad
     waiting_for_keypress: bool,
     keypress_register: u8,
+    quirks: Quirks,
 }
 
 impl Default for Chip8 {
     fn default() -> Self {
-        Self::new()
+        Self::new(Quirks::default())
     }
 }
 
 impl Chip8 {
-    pub fn new() -> Self {
+    pub fn new(quirks: Quirks) -> Self {
         let mut memory = [0; MEMORY_SIZE];
         memory[..FONTSET.len()].copy_from_slice(&FONTSET);
         Self {
@@ -95,6 +107,7 @@ impl Chip8 {
             keypad: BitArray::ZERO,
             waiting_for_keypress: false,
             keypress_register: 0,
+            quirks,
         }
     }
 
@@ -316,21 +329,36 @@ impl Chip8 {
     /// Sets `vx` to the bitwise OR of `vx` and `vy`.
     fn op_8xy1(&mut self, x: u8, y: u8) {
         self.v[x as usize] |= self.v[y as usize];
-        self.v[0xF] = 0; // Quirk: CHIP-8 resets the flag register.
+
+        // Quirk: Original CHIP-8 resets the flag register.
+        if self.quirks.vf_reset {
+            self.v[0xF] = 0;
+        }
+
         self.pc += 2;
     }
 
     /// Sets `vx` to the bitwise AND of `vx` and `vy`.
     fn op_8xy2(&mut self, x: u8, y: u8) {
         self.v[x as usize] &= self.v[y as usize];
-        self.v[0xF] = 0; // Quirk: CHIP-8 resets the flag register.
+
+        // Quirk: Original CHIP-8 resets the flag register.
+        if self.quirks.vf_reset {
+            self.v[0xF] = 0;
+        }
+
         self.pc += 2;
     }
 
     /// Sets `vx` to the XOR of `vx` and `vy`.
     fn op_8xy3(&mut self, x: u8, y: u8) {
         self.v[x as usize] ^= self.v[y as usize];
-        self.v[0xF] = 0; // Quirk: CHIP-8 resets the flag register.
+
+        // Quirk: Original CHIP-8 resets the flag register.
+        if self.quirks.vf_reset {
+            self.v[0xF] = 0;
+        }
+
         self.pc += 2;
     }
 
@@ -573,7 +601,7 @@ mod tests {
                     )
                     -> Chip8
         {
-            let mut chip8 = Chip8::new();
+            let mut chip8 = Chip8::default();
             chip8.pc += pc_offset_half * 2;
             chip8.i = i;
             chip8.v.copy_from_slice(&v);
