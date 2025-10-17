@@ -23,6 +23,22 @@ cargo build --release
 
 The compiled binary will be available at `target/release/chip8` (assuming Cargo's default target directory).
 
+### Nix
+
+This repository provides a [Nix](https://nixos.org/) flake.
+
+To build the interpreter using Nix, run:
+
+```sh
+nix build github:dixslyf/chip8
+```
+
+To run the interpreter, run:
+
+```sh
+nix run github:dixslyf/chip8
+```
+
 ## Usage
 
 For a list of available options, run:
