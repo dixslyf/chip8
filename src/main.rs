@@ -1,7 +1,7 @@
 use std::{fs, path::PathBuf, sync::Arc, time};
 
 use chip8::{Chip8, Clock, Quirks};
-use clap::{Parser, ValueEnum};
+use clap::{ArgAction, Parser, ValueEnum};
 use pixels::{Pixels, SurfaceTexture};
 use winit::{
     application::ApplicationHandler,
@@ -38,7 +38,25 @@ struct Args {
     #[arg(long, default_value = "info", value_enum)]
     log_level: LogLevel,
 
-    #[arg(long)]
+    // Ref: https://github.com/clap-rs/clap/issues/1649#issuecomment-2144879038
+    #[arg(
+        long,
+        action = ArgAction::Set,
+        default_value_t = true,
+        default_missing_value = "true",
+        num_args = 0..=1,
+        require_equals = false,
+    )]
+    quirk_draw_wrap: bool,
+
+    #[arg(
+        long,
+        action = ArgAction::Set,
+        default_value_t = false,
+        default_missing_value = "false",
+        num_args = 0..=1,
+        require_equals = false,
+    )]
     quirk_vf_reset: bool,
 }
 
@@ -245,6 +263,7 @@ pub fn main() -> Result<(), EventLoopError> {
 
     log::debug!("Initializing core emulator");
     let mut chip8 = Chip8::new(Quirks {
+        draw_wrap: args.quirk_draw_wrap,
         vf_reset: args.quirk_vf_reset,
     });
     chip8.load(&rom);

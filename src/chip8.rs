@@ -58,12 +58,16 @@ pub enum Key {
 
 #[derive(Debug, Copy, Clone)]
 pub struct Quirks {
+    pub draw_wrap: bool,
     pub vf_reset: bool,
 }
 
 impl Default for Quirks {
     fn default() -> Self {
-        Self { vf_reset: false }
+        Self {
+            draw_wrap: true,
+            vf_reset: false,
+        }
     }
 }
 
@@ -458,27 +462,48 @@ impl Chip8 {
     /// * `n` - the height of the sprite
     fn op_dxyn(&mut self, x: u8, y: u8, n: u8) {
         self.v[0xF] = 0;
-        let (vx, vy) = (
+
+        // Starting coordinates wrap.
+        let (scoord_x, scoord_y) = (
             self.v[x as usize] % DISPLAY_WIDTH as u8,
             self.v[y as usize] % DISPLAY_HEIGHT as u8,
         );
 
+        // Iterate the n rows.
+        // oy = offset for y-coordinate.
         for oy in 0..n {
-            let y = vy as usize + oy as usize;
-            if y >= DISPLAY_HEIGHT {
+            let unchecked_coord_y = scoord_y as usize + oy as usize;
+
+            // Check bounds along the y-axis if draw_wrap is off.
+            if !self.quirks.draw_wrap && unchecked_coord_y >= DISPLAY_HEIGHT {
                 break;
             }
 
-            let sprite_pixels = self.memory[(self.i + oy as u16) as usize];
+            // We already check for bounds, so this would be a no-op if draw_wrap is off.
+            let coord_y = unchecked_coord_y % DISPLAY_HEIGHT;
+
+            // Each bit in the byte represents one pixel of the sprite row.
+            let sprite_pixels = self.memory[self.i as usize + oy as usize];
+
+            // Iterate the sprite pixels (horizontally).
+            // ox = offset for x-coordinate.
             for (ox, spx) in sprite_pixels.view_bits::<Msb0>().iter().enumerate() {
-                let x = vx as usize + ox;
-                if x >= DISPLAY_WIDTH {
+                let unchecked_coord_x = scoord_x as usize + ox;
+
+                // Check bounds along the x-axis if draw_wrap is off.
+                if !self.quirks.draw_wrap && unchecked_coord_x >= DISPLAY_WIDTH {
                     break;
                 }
 
-                let idx = x + y * DISPLAY_WIDTH;
+                // We already check for bounds, so this would be a no-op if draw_wrap is off.
+                let coord_x = unchecked_coord_x % DISPLAY_WIDTH;
+
+                // Index into the display.
+                let idx = coord_x + coord_y * DISPLAY_WIDTH;
                 let mut dpx = self.display.get_mut(idx).unwrap();
-                self.v[0xF] |= (*dpx & *spx) as u8;
+
+                self.v[0xF] |= (*dpx && *spx) as u8;
+
                 *dpx ^= *spx;
             }
         }
