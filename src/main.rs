@@ -83,8 +83,15 @@ impl App {
         audio_sink.append(sine_wave);
         audio_sink.pause();
 
-        let cpu_clock = Clock::new("cpu", time::Duration::from_secs_f64(1.0 / cpu_freq));
-        let timers_clock = Clock::new("timers", time::Duration::from_secs_f64(1.0 / timers_freq));
+        let cpu_clock = Clock::new(
+            "cpu",
+            time::Duration::from_nanos((1_000_000_000.0 / cpu_freq.max(1.0)).round() as u64),
+        );
+
+        let timers_clock = Clock::new(
+            "timers",
+            time::Duration::from_nanos((1_000_000_000.0 / timers_freq.max(1.0)).round() as u64),
+        );
 
         Self {
             chip8,
